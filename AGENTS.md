@@ -10,7 +10,9 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 # Moviegram — agent guide
 
-Private 2-person watch party. Source of truth for product intent: `prd.md`.
+Private 2-person watch party. Product intent lives in `prd.md`, a **private,
+gitignored file that is not in this repo or on GitHub** — do not commit, link,
+or reference it from tracked files.
 
 ## What this is
 
@@ -22,7 +24,9 @@ video storage via `teleproto` (the maintained GramJS fork — `telegram` npm is 
 
 | Command | Purpose |
 | --- | --- |
-| `npm run dev` + `npm run dev:ws` | dev loop (Turbopack :3000, ws :3001) |
+| `npm run setup` | one-command bootstrap for new users: `.env.local` + deps + docker postgres + db:push + demo media + seed (idempotent) |
+| `npm run dev:all` | dev loop in one terminal (Turbopack :3000 + ws :3001) |
+| `npm run dev` + `npm run dev:ws` | the same two processes, separately |
 | `docker compose up -d postgres` | local DB only (dev default) |
 | `docker compose up --build` | full stack: postgres + app + ws |
 | `npm run db:push` / `db:generate` / `db:migrate` | Drizzle (needs `DATABASE_URL`) |
@@ -82,6 +86,10 @@ video storage via `teleproto` (the maintained GramJS fork — `telegram` npm is 
 - `docker compose` env: `NEXT_PUBLIC_*` is baked at image **build** time (ARG in
   `Dockerfile`), not runtime.
 - Demo media is gitignored; regenerate with `npm run media:demo` before seeding/playing.
+- tsx does **not** auto-load `.env.local` (Next does). All tsx invocations pass
+  `--env-file-if-exists=.env.local` — without it the ws server falls back to the dev
+  `SESSION_SECRET` in `lib/env.ts` while the app signs tickets with the `.env.local`
+  value, and joins fail HMAC verification. Keep the flag on any new tsx script.
 
 ## Verification loop
 

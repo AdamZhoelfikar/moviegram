@@ -5,21 +5,77 @@ Play, pause and seek stay synchronized between you and one friend — measured
 at tens of milliseconds in local testing, not "both happen to be playing the
 same movie".
 
-Built from [`prd.md`](./prd.md) — that file is the product source of truth;
-this README documents the implementation and its status.
+Watch **your own movies**: videos are stored in a private Telegram channel and
+streamed straight into the synced player (MTProto, nothing uploaded to any
+third-party server). A few CC-licensed demo clips are included to try the sync
+first — see [Full mode](#full-mode--watch-your-own-movies) to use your own
+library.
 
 ---
 
-## Status against the PRD
+## Install in one command
 
-| PRD phase | Status |
+Requirements: **Node 22+** and **Docker** (ffmpeg optional, only for demo clips).
+
+```bash
+npm run setup      # env file + deps + postgres + schema + seed — idempotent
+npm run dev:all    # app on :3000 AND sync server on :3001, one terminal
+```
+
+Open `http://localhost:3000` in two windows (one incognito), enter a display
+name in each, **Create Watch Room → Watch** in one, copy the invite link into
+the other, **Join room**, press play. The sync pill shows 🟢/🟡/🔴 and
+`↻ Sync` re-anchors manually.
+
+<details>
+<summary>Manual setup (if you prefer, or no Docker)</summary>
+
+```bash
+cp .env.example .env.local          # defaults work against local docker postgres
+docker compose up -d postgres       # or point DATABASE_URL at any Postgres
+npm install
+npm run media:demo                  # optional: generates public/media/*.mp4
+npm run db:push
+npm run db:seed
+npm run dev                         # app on :3000      (terminal 1)
+npm run dev:ws                      # sync server :3001 (terminal 2)
+```
+
+Full container mode: `docker compose up --build` (postgres + app + ws).
+`NEXT_PUBLIC_WS_URL` is a **build arg** in that mode (baked at image build).
+
+</details>
+
+## Full mode — watch your own movies
+
+The demo clips are just for trying the sync. The real product streams **your
+own library** from a private Telegram channel — everything else (rooms, chat,
+series/auto-next, cinema mode, history) works identically:
+
+1. Upload the videos you have rights to store into a **private Telegram
+   channel** (MP4 with `+faststart` seeks properly in the player).
+2. Create an API token at <https://my.telegram.org> → set `TELEGRAM_API_ID`
+   and `TELEGRAM_API_HASH` in `.env.local`.
+3. `npm run telegram:login -- <phone>` → it prints a `TELEGRAM_SESSION=…`
+   line → paste it into `.env.local` (stays server-side, never committed).
+4. `npm run import:telegram -- @yourchannel` → every video lands in your
+   Moviegram library with title/metadata; bytes are fetched lazily over
+   MTProto at play time via the signed `/api/stream` route.
+
+That's it — no re-uploading anywhere else, no 20 MB Bot API limit (MTProto is
+used deliberately), and expired Telegram `file_reference`s re-resolve
+automatically.
+
+## Feature status
+
+| Area | Status |
 | --- | --- |
-| **Phase 0 — POC A** (local player sync: play/pause/seek/join-in-progress/drift correction/reconnect) | ✅ **Built & browser-verified** (two-tab Playwright QA, see [QA evidence](#qa-evidence)) |
-| **Phase 0 — POC B** (Telegram MTProto chunk streaming → HTML5 video with seeking) | 🟡 **Code complete** (`lib/telegram.ts`, `/api/stream`), needs real `TELEGRAM_*` credentials + a channel to run the final playback proof |
-| **Phase 1 — MVP** (landing, library, rooms, invite, 2-person limit, host system, sync, reconnection, sync status, basic identity) | ✅ Built |
-| **Phase 2** (chat, timestamped chat, reactions, watch history/continue, subtitles track, series/episodes + auto-next, cinema mode, room expiration) | ✅ Built (minimal versions) |
-| Phase 2 extras (queue, watchlist, password rooms, admin UI, better buffering policy) | ⏳ Not built — deliberate lean-build scope cut |
-| Phase 3/4 (casting, multi-audio, scale) | ⏳ Out of scope per PRD |
+| Player sync (play/pause/seek/join-in-progress/drift correction/reconnect) | ✅ **Built & browser-verified** (two-tab Playwright QA, see [QA evidence](#tests--qa-evidence)) |
+| Telegram MTProto chunk streaming → HTML5 video with seeking | 🟡 **Code complete** (`lib/telegram.ts`, `/api/stream`), final playback proof needs your `TELEGRAM_*` credentials |
+| Landing, library, rooms, invite, 2-person limit, host system, sync status, basic identity | ✅ Built |
+| Chat + timestamps, reactions, watch history/continue, subtitles track, series/episodes + auto-next, cinema mode, room expiration | ✅ Built (minimal versions) |
+| Queue, watchlist, password rooms, admin UI, stricter buffering policy | ⏳ Not built — deliberate lean-build scope cut |
+| Casting, multi-audio, multi-instance scale | ⏳ Out of scope |
 
 ## Architecture
 
@@ -41,14 +97,14 @@ this README documents the implementation and its status.
   container host (Railway/Fly/a VPS); it holds live room state, stamps every
   event with its own wall clock, persists playback state to Postgres on every
   control event + periodic flush, and re-hydrates rooms from the DB — so a
-  restart never loses the timeline (PRD §10).
+  restart never loses the timeline.
 - **Video bytes never touch the sync server.** Browsers get either a redirect
   (demo `url` sources) or the range-capable `/api/stream/[videoId]` endpoint,
   which pulls byte ranges from Telegram via MTProto `upload.getFile` chunks
   (teleproto `iterDownload`) and re-exposes them with correct `206/Content-Range`
-  semantics. Telegram ids are never sent to the client (PRD §16.1).
+  semantics. Telegram ids are never sent to the client.
 
-### Sync model (PRD §11)
+### Sync model
 
 Server state per room: `{ videoId, playing, positionSeconds, playbackRate, serverTsMs }`.
 
@@ -65,52 +121,15 @@ the local `video.currentTime`:
 
 Host-only controls (`play/pause/seek/change_video/ended`) are enforced **on the
 server**; the guest UI additionally disables them. Reconnects use exponential
-backoff and re-fetch authoritative state — no page refresh needed (PRD §6.16).
+backoff and re-fetch authoritative state — no page refresh needed.
 
-### Realtime protocol (PRD §6.17)
+### Realtime protocol
 
 JSON over `ws://<sync-server>/?code=<invite>&token=<ticket>` — client:
 `ping play pause seek sync ended change_video chat reaction leave`;
 server: `pong joined state stream chat_message reaction room_ended error`.
 Tickets are short-lived HMAC payloads issued by `POST /api/rooms/[code]/join`
 because the httpOnly session cookie cannot be read by `WebSocket`.
-
-## Quick start
-
-Requirements: Node 20.9+ (22+/26 fine), Docker, ffmpeg (only for demo media).
-
-```bash
-cp .env.example .env.local          # defaults work against local docker postgres
-docker compose up -d postgres
-npm install
-
-npm run media:demo                  # generates public/media/*.mp4 (gitignored)
-npm run db:push                     # or: db:generate + db:migrate
-npm run db:seed                     # demo library rows
-
-npm run dev                         # app on :3000
-npm run dev:ws                      # sync server on :3001   (run in a 2nd terminal)
-```
-
-Open `http://localhost:3000` in two windows (one incognito), enter a display
-name each, **Create Watch Room → Watch** in one, copy the invite link into the
-other, **Join room**, press play. The sync pill shows 🟢/🟡/🔴 and `↻ Sync`
-re-anchors manually.
-
-Full container mode: `docker compose up --build` (postgres + app + ws).
-`NEXT_PUBLIC_WS_URL` is a **build arg** in that mode (baked at image build).
-
-## Telegram setup (POC B / real library)
-
-1. Upload permitted videos to a **private Telegram channel**.
-2. Get `api_id`/`api_hash` at <https://my.telegram.org> → put in `.env.local`.
-3. `npm run telegram:login -- <phone>` → prints a `TELEGRAM_SESSION=…` string →
-   add to `.env.local` (server-side only, never committed).
-4. `npm run import:telegram -- @yourchannel` → imports video references +
-   metadata into the library (chunks are fetched lazily at stream time).
-
-Notes: MP4s need `+faststart` for seeking; expired `file_reference`s are
-re-resolved automatically; Bot API is deliberately not used (20 MB limit).
 
 ## Environment variables
 
@@ -120,7 +139,7 @@ re-resolved automatically; Bot API is deliberately not used (20 MB limit).
 | `SESSION_SECRET` | HMAC key for sessions/grants/tickets — **required in production** |
 | `NEXT_PUBLIC_WS_URL` | browser → sync server URL (default `ws://localhost:3001`) |
 | `WS_PORT` | sync server port |
-| `ROOM_TTL_HOURS` | room expiry (default 168 = 7 days, PRD §6.29) |
+| `ROOM_TTL_HOURS` | room expiry (default 168 = 7 days) |
 | `STREAM_TOKEN_TTL_HOURS` | stream grant lifetime (default 12) |
 | `TELEGRAM_API_ID` / `TELEGRAM_API_HASH` / `TELEGRAM_SESSION` | MTProto credentials |
 | `TELEGRAM_IMPORT_CHANNEL` | default channel for `import:telegram` |
@@ -145,14 +164,14 @@ Dockerfile / Dockerfile.ws / docker-compose.yml
   tokens, stream grants, WS tickets.
 - Browser QA (Playwright MCP, two tabs, local stack):
   - host play → guest followed within **~30 ms** measured across tabs;
-  - guest **reload mid-play** → auto-resync to **~80 ms** (PRD target <100 ms);
+  - guest **reload mid-play** → auto-resync to **~80 ms** (target <100 ms);
   - host seek/pause → guest follows; room end → `ended` → both consistent;
   - third user joining → `409 "This room already has two participants."`;
   - timestamped chat + reactions delivered live across tabs;
   - sync-server **restart mid-room** → state re-hydrated from Postgres;
   - cinema mode, invite copy, fullscreen controls verified via screenshots.
-- POC B (Telegram) runtime proof is **pending credentials** — the code path,
-  range math and grant auth are unit-tested.
+- Telegram streaming runtime proof is **pending your credentials** — the code
+  path, range math and grant auth are unit-tested.
 
 ## Deployment
 
@@ -167,18 +186,18 @@ Dockerfile / Dockerfile.ws / docker-compose.yml
   secret as the app).
 - **DB:** managed Postgres (Neon/Supabase/RDS); run `npm run db:migrate`.
 - Rate limiting is in-process (single instance assumed — fine for 2 users;
-  revisit with Redis only if you scale, PRD Phase 4).
+  revisit with Redis only if you scale).
 
 ## Known limitations (honest list)
 
-- Strict "wait-for-both" buffering policy (PRD §6.13) is simplified: a
+- Strict "wait-for-both" buffering policy is simplified: a
   buffering peer is corrected after it catches up, the room does not auto-pause.
 - One active room per pair at a time is the tested path; multiple concurrent
   rooms work but were not load-verified.
-- No password rooms, queue, watchlist, admin UI, multi-audio (Phase 2/3 extras).
+- No password rooms, queue, watchlist, admin UI, multi-audio.
 - `watch history` writes attribute to the current cookie's user (fine for the
   2-person product; revisit with real auth).
-- Telegram streaming not yet proven against live credentials (POC B checklist).
+- Telegram streaming not yet proven against live credentials.
 
 ## Agent / contributor docs
 
@@ -187,6 +206,6 @@ invariants, commands, and the gotchas that cost real debugging time.
 
 ## License / content rights
 
-Private-use project. Only store/stream content you are authorized to
-(PRD §16.7). Demo media: Big Buck Bunny © Blender Foundation (CC-BY 3.0),
+Private-use project. Only store/stream content you are authorized to.
+Demo media: Big Buck Bunny © Blender Foundation (CC-BY 3.0),
 generated locally; the sync-clock clip is synthetic.
