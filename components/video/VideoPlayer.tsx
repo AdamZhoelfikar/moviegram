@@ -1,0 +1,411 @@
+"use client";
+
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from "react";
+import {
+  Expand,
+  Minimize,
+  Pause,
+  PictureInPicture2,
+  Play,
+  Volume2,
+  VolumeX,
+} from "lucide-react";
+import type { ClientEvent, RoomStateMessage, StreamDescriptor } from "../../lib/protocol";
+import { correctionFor, formatTime } from "../../lib/sync";
+
+export type VideoPlayerHandle = {
+  seekLocal: (seconds: number) => void;
+};
+
+type FloatingReaction = { id: number; emoji: string; name: string };
+
+const SPEED_OPTIONS = [0.75, 1, 1.25, 1.5, 2];
+
+const VideoPlayer = forwardRef<VideoPlayerHandle, {
+  state: RoomStateMessage;
+  stream: StreamDescriptor;
+  isHost: boolean;
+  getExpected: (nowMs: number) => number | null;
+  onControl: (event: ClientEvent) => void;
+  onDrift: (ms: number) => void;
+  floating: FloatingReaction[];
+}>(function VideoPlayer(
+  { state, stream, isHost, getExpected, onControl, onDrift, floating },
+  ref,
+) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const nudgeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scrubbingRef = useRef(false);
+  const stateRef = useRef(state);
+  const getExpectedRef = useRef(getExpected);
+  const isHostRef = useRef(isHost);
+
+  useEffect(() => {
+    stateRef.current = state;
+    getExpectedRef.current = getExpected;
+    isHostRef.current = isHost;
+  }, [state, getExpected, isHost]);
+
+  const [nowDisplay, setNowDisplay] = useState(state.positionSeconds);
+  const [duration, setDuration] = useState(state.durationSeconds ?? 0);
+  const [buffering, setBuffering] = useState(false);
+  const [autoplayBlocked, setAutoplayBlocked] = useState(false);
+  const [controlsVisible, setControlsVisible] = useState(true);
+  const [volume, setVolume] = useState(1);
+  const [muted, setMuted] = useState(false);
+  const [scrubValue, setScrubValue] = useState<number | null>(null);
+
+  const src = stream.kind === "url" ? stream.url : stream.path;
+
+  useImperativeHandle(ref, () => ({
+    seekLocal: (seconds: number) => {
+      const el = videoRef.current;
+      if (el) el.currentTime = Math.max(0, seconds);
+    },
+  }));
+
+  // Swap source when the room switches video (auto next episode, host change)
+  useEffect(() => {
+    const el = videoRef.current;
+    if (!el) return;
+    if (!el.src.endsWith(src) && el.src !== window.location.origin + src) {
+      el.src = src;
+      el.load();
+    }
+  }, [src]);
+
+  // Apply authoritative transitions (PRD 11.4)
+  useEffect(() => {
+    const el = videoRef.current;
+    if (!el) return;
+    const expected = getExpectedRef.current(Date.now()) ?? state.positionSeconds;
+    if (state.playing) {
+      el.playbackRate = state.playbackRate;
+      el.play().then(
+        () => setAutoplayBlocked(false),
+        () => setAutoplayBlocked(true),
+      );
+    } else {
+      el.pause();
+      if (Math.abs(el.currentTime - expected) > 0.25) {
+        el.currentTime = expected;
+      }
+    }
+    if (el.duration > 0) setDuration(el.duration);
+    setNowDisplay(expected);
+  }, [state]);
+
+  // Continuous drift correction (PRD 6.12)
+  useEffect(() => {
+    const tick = setInterval(() => {
+      const el = videoRef.current;
+      const snapshot = stateRef.current;
+      if (!el || el.readyState < 2 || scrubbingRef.current) return;
+      const expected = getExpectedRef.current(Date.now());
+      if (expected == null) return;
+      const drift = (el.currentTime - expected) * 1000;
+      onDrift(drift);
+      setNowDisplay(expected);
+      if (!snapshot.playing || el.paused || el.seeking) return;
+      const correction = correctionFor(drift, expected);
+      if (correction.action === "none") return;
+      if (correction.action === "nudge") {
+        el.playbackRate = Math.min(4, Math.max(0.25, correction.rate * snapshot.playbackRate));
+        if (nudgeTimerRef.current) clearTimeout(nudgeTimerRef.current);
+        nudgeTimerRef.current = setTimeout(() => {
+          const inner = videoRef.current;
+          if (inner) inner.playbackRate = stateRef.current.playbackRate;
+        }, 2500);
+        return;
+      }
+      if (nudgeTimerRef.current) clearTimeout(nudgeTimerRef.current);
+      el.playbackRate = snapshot.playbackRate;
+      el.currentTime = correction.positionSeconds;
+    }, 250);
+    return () => clearInterval(tick);
+  }, [onDrift]);
+
+  const showControls = useCallback(() => {
+    setControlsVisible(true);
+    if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    hideTimerRef.current = setTimeout(() => setControlsVisible(false), 3000);
+  }, []);
+
+  const togglePlay = useCallback(() => {
+    const el = videoRef.current;
+    const snapshot = stateRef.current;
+    if (!el || !isHostRef.current) return;
+    if (snapshot.playing) {
+      onControl({ type: "pause", position: el.currentTime });
+    } else {
+      onControl({ type: "play", position: el.currentTime });
+    }
+  }, [onControl]);
+
+  const commitSeek = useCallback(
+    (seconds: number) => {
+      const el = videoRef.current;
+      if (!el || !isHostRef.current) return;
+      el.currentTime = Math.max(0, seconds);
+      onControl({ type: "seek", position: Math.max(0, seconds) });
+    },
+    [onControl],
+  );
+
+  const setRate = useCallback(
+    (rate: number) => {
+      const el = videoRef.current;
+      const snapshot = stateRef.current;
+      if (!el || !isHostRef.current) return;
+      if (snapshot.playing) {
+        onControl({ type: "play", position: el.currentTime, rate });
+      } else {
+        onControl({ type: "seek", position: el.currentTime });
+        el.playbackRate = rate;
+      }
+    },
+    [onControl],
+  );
+
+  const toggleFullscreen = useCallback(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    if (document.fullscreenElement) void document.exitFullscreen();
+    else void container.requestFullscreen().catch(() => undefined);
+  }, []);
+
+  const onKeyDown = useCallback(
+    (event: React.KeyboardEvent) => {
+      const target = event.target as HTMLElement;
+      if (target.tagName === "INPUT" || target.tagName === "TEXTAREA") return;
+      const el = videoRef.current;
+      if (!el) return;
+      switch (event.key) {
+        case " ":
+        case "k":
+          event.preventDefault();
+          togglePlay();
+          break;
+        case "ArrowLeft":
+          event.preventDefault();
+          if (isHostRef.current) commitSeek(el.currentTime - 5);
+          break;
+        case "ArrowRight":
+          event.preventDefault();
+          if (isHostRef.current) commitSeek(el.currentTime + 5);
+          break;
+        case "ArrowUp":
+          event.preventDefault();
+          setVolume((v) => Math.min(1, v + 0.05));
+          break;
+        case "ArrowDown":
+          event.preventDefault();
+          setVolume((v) => Math.max(0, v - 0.05));
+          break;
+        case "m":
+          setMuted((m) => !m);
+          break;
+        case "f":
+          toggleFullscreen();
+          break;
+      }
+      showControls();
+    },
+    [togglePlay, commitSeek, toggleFullscreen, showControls],
+  );
+
+  useEffect(() => {
+    const el = videoRef.current;
+    if (el) {
+      el.volume = volume;
+      el.muted = muted;
+    }
+  }, [volume, muted]);
+
+  const progressMax = duration || state.durationSeconds || 0;
+  const progressValue = scrubValue ?? nowDisplay;
+
+  return (
+    <div
+      ref={containerRef}
+      tabIndex={0}
+      onMouseMove={showControls}
+      onTouchStart={showControls}
+      onKeyDown={onKeyDown}
+      className="group relative flex h-full max-h-full flex-col overflow-hidden rounded-xl bg-black outline-none"
+    >
+      <video
+        ref={videoRef}
+        playsInline
+        className="min-h-0 w-full flex-1 bg-black"
+        onLoadedMetadata={(e) => {
+          const el = e.currentTarget;
+          if (Number.isFinite(el.duration)) setDuration(el.duration);
+          const expected = getExpectedRef.current(Date.now());
+          if (expected != null) el.currentTime = expected;
+        }}
+        onWaiting={() => setBuffering(true)}
+        onPlaying={() => setBuffering(false)}
+        onEnded={() => {
+          if (isHostRef.current) onControl({ type: "ended" });
+        }}
+      >
+        {stream.subtitlePath && (
+          <track kind="subtitles" src={stream.subtitlePath} srcLang="en" label="Subtitles" />
+        )}
+      </video>
+
+      {floating.map((reaction, index) => (
+        <span
+          key={reaction.id}
+          className="reaction-float pointer-events-none absolute bottom-28 right-6 z-20 text-3xl"
+          style={{ animationDelay: `${index * 40}ms` }}
+          title={reaction.name}
+        >
+          {reaction.emoji}
+        </span>
+      ))}
+
+      {buffering && (
+        <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
+          <div className="h-10 w-10 animate-spin rounded-full border-2 border-white/20 border-t-accent" />
+        </div>
+      )}
+
+      {autoplayBlocked && (
+        <button
+          type="button"
+          onClick={() => {
+            const el = videoRef.current;
+            if (el) el.play().then(() => setAutoplayBlocked(false), () => undefined);
+          }}
+          className="absolute inset-0 z-10 flex items-center justify-center bg-black/60 text-sm font-medium"
+        >
+          <span className="rounded-full bg-accent px-5 py-2.5 text-black">
+            ▶ Tap to start watching
+          </span>
+        </button>
+      )}
+
+      <div
+        className={`absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/90 via-black/50 to-transparent px-4 pb-3 pt-10 transition-opacity ${
+          controlsVisible || !state.playing ? "opacity-100" : "opacity-0"
+        }`}
+      >
+        <input
+          type="range"
+          className="progress w-full"
+          min={0}
+          max={Math.max(progressMax, 0.1)}
+          step={0.1}
+          value={Math.min(progressValue, progressMax || progressValue)}
+          readOnly={!isHost}
+          aria-label="Seek"
+          onPointerDown={() => {
+            if (isHost) scrubbingRef.current = true;
+          }}
+          onInput={(e) => {
+            if (isHost) setScrubValue(Number((e.target as HTMLInputElement).value));
+          }}
+          onPointerUp={(e) => {
+            if (!isHost) return;
+            scrubbingRef.current = false;
+            const value = Number((e.target as HTMLInputElement).value);
+            setScrubValue(null);
+            commitSeek(value);
+          }}
+          onKeyUp={(e) => {
+            if (!isHost) return;
+            scrubbingRef.current = false;
+            const value = Number((e.target as HTMLInputElement).value);
+            setScrubValue(null);
+            commitSeek(value);
+          }}
+        />
+        <div className="flex items-center gap-3 text-sm">
+          <button
+            type="button"
+            onClick={togglePlay}
+            disabled={!isHost}
+            title={isHost ? "Play/Pause" : "Only the host controls playback"}
+            className="text-white transition disabled:opacity-40"
+          >
+            {state.playing ? <Pause size={20} /> : <Play size={20} />}
+          </button>
+          <span className="font-mono text-xs text-white/80">
+            {formatTime(nowDisplay)} / {formatTime(duration || state.durationSeconds)}
+          </span>
+          <span className="ml-auto flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setMuted((m) => !m)}
+              className="text-white/80 transition hover:text-white"
+              aria-label="Mute"
+            >
+              {muted || volume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}
+            </button>
+            <input
+              type="range"
+              className="progress h-1 w-16"
+              min={0}
+              max={1}
+              step={0.05}
+              value={muted ? 0 : volume}
+              onChange={(e) => {
+                setVolume(Number(e.target.value));
+                setMuted(false);
+              }}
+              aria-label="Volume"
+            />
+          </span>
+          {isHost && (
+            <select
+              value={state.playbackRate}
+              onChange={(e) => setRate(Number(e.target.value))}
+              className="rounded border border-white/20 bg-black/60 px-1 py-0.5 text-xs text-white/80"
+              aria-label="Playback speed"
+            >
+              {SPEED_OPTIONS.map((option) => (
+                <option key={option} value={option}>
+                  {option}×
+                </option>
+              ))}
+            </select>
+          )}
+          <button
+            type="button"
+            onClick={() => {
+              const el = videoRef.current;
+              if (!el) return;
+              if (document.pictureInPictureElement) void document.exitPictureInPicture();
+              else void el.requestPictureInPicture().catch(() => undefined);
+            }}
+            className="text-white/80 transition hover:text-white"
+            aria-label="Picture in picture"
+          >
+            <PictureInPicture2 size={18} />
+          </button>
+          <button
+            type="button"
+            onClick={toggleFullscreen}
+            className="text-white/80 transition hover:text-white"
+            aria-label="Fullscreen"
+          >
+            {document.fullscreenElement ? <Minimize size={18} /> : <Expand size={18} />}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+});
+
+export default VideoPlayer;

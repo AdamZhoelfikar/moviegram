@@ -1,0 +1,60 @@
+name: moviegram
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: wp
+      POSTGRES_PASSWORD: wp
+      POSTGRES_DB: wp
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wp -d wp"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_WS_URL: ws://localhost:3001
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://wp:wp@postgres:5432/wp
+      SESSION_SECRET: ${SESSION_SECRET:-dev-secret-change-me}
+      ROOM_TTL_HOURS: "168"
+      TELEGRAM_API_ID: ${TELEGRAM_API_ID:-}
+      TELEGRAM_API_HASH: ${TELEGRAM_API_HASH:-}
+      TELEGRAM_SESSION: ${TELEGRAM_SESSION:-}
+    ports:
+      - "3000:3000"
+
+  ws:
+    build:
+      context: .
+      dockerfile: Dockerfile.ws
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://wp:wp@postgres:5432/wp
+      SESSION_SECRET: ${SESSION_SECRET:-dev-secret-change-me}
+      WS_PORT: "3001"
+      TELEGRAM_API_ID: ${TELEGRAM_API_ID:-}
+      TELEGRAM_API_HASH: ${TELEGRAM_API_HASH:-}
+      TELEGRAM_SESSION: ${TELEGRAM_SESSION:-}
+    ports:
+      - "3001:3001"
+
+volumes:
+  pgdata:
