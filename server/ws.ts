@@ -129,7 +129,12 @@ wss.on("connection", async (socket, request) => {
   socket.on("message", async (raw) => {
     let event: ClientEvent;
     try {
-      event = JSON.parse(String(raw));
+      const parsed: unknown = JSON.parse(String(raw));
+      // `null`/`123`/"x" are valid JSON but not client events. Without this
+      // guard `event.type` throws inside an async handler, which becomes an
+      // unhandled rejection and takes the whole sync server down.
+      if (typeof parsed !== "object" || parsed === null) return;
+      event = parsed as ClientEvent;
     } catch {
       return;
     }
@@ -278,9 +283,16 @@ setInterval(() => {
   sweepExpiredRooms()
     .then((expired) => {
       for (const room of expired) {
-        broadcast(room.inviteCode, { type: "room_ended", reason: "This watch room has expired." });
+        // sweepExpiredRooms() already removed the room from the live map, so
+        // broadcast() would find nothing — talk to the members we still hold.
+        const ended: ServerEvent = {
+          type: "room_ended",
+          reason: "This watch room has expired.",
+        };
         for (const member of room.members.values()) {
-          member.socket?.close();
+          if (!member.socket) continue;
+          send(member.socket, ended);
+          member.socket.close();
         }
       }
     })
@@ -291,6 +303,12 @@ function stateOfCode(code: string) {
   const room = liveRoomByCode(code);
   return room ? roomState(room) : (undefined as never);
 }
+
+// A throw inside an async socket handler would otherwise become an unhandled
+// rejection and kill the process for every room at once. Log it, stay up.
+process.on("unhandledRejection", (reason) => {
+  console.error("[ws] unhandled rejection (kept alive):", reason);
+});
 
 const closing = () => {
   flushLiveRooms()
