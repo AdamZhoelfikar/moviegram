@@ -20,6 +20,14 @@ const WS_BASE =
     ? process.env.NEXT_PUBLIC_WS_URL
     : "ws://localhost:3001";
 
+// Video bytes come from the sync-server host, so a relative stream path is
+// resolved against the same origin as the WebSocket — one place to configure.
+const STREAM_BASE = WS_BASE.replace(/^ws/, "http").replace(/\/+$/, "");
+
+function resolveStreamPath(path: string): string {
+  return path.startsWith("/") ? `${STREAM_BASE}${path}` : path;
+}
+
 type FloatingReaction = { id: number; emoji: string; name: string };
 
 export default function RoomClient({
@@ -252,7 +260,9 @@ export default function RoomClient({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ videoId: snapshot.videoId, position }),
       }).catch(() => undefined);
-    }, 30_000);
+      // 60 s: half the function invocations while watching, still frequent
+      // enough for "Continue watching" to be accurate.
+    }, 60_000);
     return () => {
       mountedRef.current = false;
       clearInterval(ping);
@@ -423,7 +433,11 @@ export default function RoomClient({
             <VideoPlayer
               ref={playerRef}
               state={state}
-              stream={stream}
+              stream={
+                stream.kind === "telegram"
+                  ? { ...stream, path: resolveStreamPath(stream.path) }
+                  : stream
+              }
               isHost={isHost}
               getExpected={getExpected}
               onControl={sendEvent}

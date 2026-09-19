@@ -18,12 +18,20 @@ export default async function RoomPage({
   const { code } = await params;
   const user = await getSessionUser();
 
+  // One round trip: room + video + roster (left join fans out one row per
+  // member). Two sequential Neon queries used to cost ~2x the latency here.
   const rows = await db
-    .select({ room: rooms, video: videos })
+    .select({
+      room: rooms,
+      video: videos,
+      memberUserId: roomMembers.userId,
+      memberRole: roomMembers.role,
+    })
     .from(rooms)
     .innerJoin(videos, eq(rooms.videoId, videos.id))
-    .where(eq(rooms.inviteCode, code))
-    .limit(1);
+    .leftJoin(roomMembers, eq(roomMembers.roomId, rooms.id))
+    .where(eq(rooms.inviteCode, code));
+
   const row = rows[0];
 
   if (!row) {
@@ -43,10 +51,9 @@ export default async function RoomPage({
     );
   }
 
-  const memberRows = await db
-    .select({ userId: roomMembers.userId, role: roomMembers.role })
-    .from(roomMembers)
-    .where(eq(roomMembers.roomId, row.room.id));
+  const memberRows = rows
+    .filter((r): r is typeof r & { memberUserId: string } => r.memberUserId != null)
+    .map((r) => ({ userId: r.memberUserId, role: r.memberRole }));
 
   if (!user) {
     return (

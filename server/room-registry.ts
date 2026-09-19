@@ -101,10 +101,16 @@ export async function streamDescriptorFor(room: LiveRoom): Promise<StreamDescrip
     };
   }
   const grant = createGrant(video.id, env.streamTokenTtlHours);
+  const query = `grant=${encodeURIComponent(grant)}`;
+  // Bytes are served by the sync-server host (single warm MTProto connection,
+  // no Vercel duration/bandwidth). The path stays relative by default so the
+  // browser resolves it against NEXT_PUBLIC_WS_URL and automatically follows
+  // tunnel changes; PUBLIC_STREAM_BASE overrides it for split deployments.
+  const base = env.publicStreamBase.replace(/\/+$/, "");
   return {
     kind: "telegram",
     videoId: video.id,
-    path: `/api/stream/${video.id}?grant=${encodeURIComponent(grant)}`,
+    path: base ? `${base}/stream/${video.id}?${query}` : `/stream/${video.id}?${query}`,
     subtitlePath: video.subtitleUrl ?? undefined,
   };
 }

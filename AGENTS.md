@@ -64,8 +64,15 @@ video storage via `teleproto` (the maintained GramJS fork — `telegram` npm is 
 - Only the host may send play/pause/seek/change_video/ended — enforced **server-side**,
   not just in the UI.
 - Browsers must never learn Telegram identifiers: `videos.telegram_*` stays server-side;
-  the only video path to the client is `/api/stream/[videoId]?grant=…` (short-lived HMAC)
-  or a `url` redirect for demo assets.
+  the only video path to the client is the sync host's `/stream/[videoId]?grant=…`
+  (short-lived HMAC) or a `url` redirect for demo assets.
+- **Telegram MTProto runs in exactly one process — never on Vercel.** Telegram
+  invalidates an auth key used concurrently from two connections
+  (`AuthKeyDuplicatedError`), and serverless instances are neither single nor
+  long-lived. Video bytes are served by `server/streamer.ts` on the sync-server
+  host; `app/api/stream/[videoId]` is a thin redirector for `url` sources only.
+  Never import `lib/telegram.ts` from `app/` — it would put teleproto (~2 MB)
+  back into every Vercel function and risk a second session.
 - WS auth uses short-lived signed **tickets** returned by `POST /api/rooms/[code]/join`
   (session cookie is httpOnly and cannot be read by JS). Reconnects reuse the cached
   ticket; only a `forbidden` error forces a fresh join call. Do not reconnect through
@@ -86,6 +93,10 @@ video storage via `teleproto` (the maintained GramJS fork — `telegram` npm is 
 - `docker compose` env: `NEXT_PUBLIC_*` is baked at image **build** time (ARG in
   `Dockerfile`), not runtime.
 - Demo media is gitignored; regenerate with `npm run media:demo` before seeding/playing.
+- Vercel cost rules: keep DB work cached (`lib/video-cache.ts`), keep the pool at
+  `max: 1` with `prepare: false` (Neon pooler), and never stream bytes through a
+  function — a stalled stream holds a function until `maxDuration` (300 s timeouts
+  were observed before streaming moved to the sync host).
 - tsx does **not** auto-load `.env.local` (Next does). All tsx invocations pass
   `--env-file-if-exists=.env.local` — without it the ws server falls back to the dev
   `SESSION_SECRET` in `lib/env.ts` while the app signs tickets with the `.env.local`

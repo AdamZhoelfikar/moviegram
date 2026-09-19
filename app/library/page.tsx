@@ -1,9 +1,7 @@
 import Link from "next/link";
-import { desc, eq } from "drizzle-orm";
-import { db } from "../../lib/db";
-import { series, videos } from "../../db/schema";
 import { getSessionUser } from "../../lib/session";
 import { formatTime } from "../../lib/sync";
+import { listVideos } from "../../lib/video-cache";
 import CreateRoomButton from "../../components/home/CreateRoomButton";
 import NameGate from "../../components/auth/NameGate";
 
@@ -23,24 +21,7 @@ export default async function LibraryPage(): Promise<React.ReactElement> {
     );
   }
 
-  const rows = await db
-    .select({
-      id: videos.id,
-      title: videos.title,
-      description: videos.description,
-      thumbnail: videos.thumbnail,
-      durationSeconds: videos.durationSeconds,
-      year: videos.year,
-      genre: videos.genre,
-      season: videos.season,
-      episode: videos.episode,
-      seriesTitle: series.title,
-      subtitleUrl: videos.subtitleUrl,
-    })
-    .from(videos)
-    .leftJoin(series, eq(videos.seriesId, series.id))
-    .orderBy(desc(videos.createdAt))
-    .limit(100);
+  const rows = await listVideos();
 
   return (
     <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col px-5 py-5 sm:px-6 sm:py-6">

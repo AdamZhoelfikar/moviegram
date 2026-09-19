@@ -20,6 +20,9 @@ export const env = {
   wsPort: num("WS_PORT", 3001),
   roomTtlHours: num("ROOM_TTL_HOURS", 168),
   streamTokenTtlHours: num("STREAM_TOKEN_TTL_HOURS", 12),
+  // Public base URL of the sync-server host (e.g. https://xxx.trycloudflare.com).
+  // When set, video bytes are served from there instead of Vercel functions.
+  publicStreamBase: process.env.PUBLIC_STREAM_BASE ?? "",
   telegramApiId: num("TELEGRAM_API_ID", 0),
   telegramApiHash: process.env.TELEGRAM_API_HASH ?? "",
   telegramSession: process.env.TELEGRAM_SESSION ?? "",

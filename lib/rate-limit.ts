@@ -1,6 +1,20 @@
 type Bucket = { count: number; resetAt: number };
 
 const buckets = new Map<string, Bucket>();
+const SWEEP_EVERY_MS = 60_000;
+let lastSweep = 0;
+
+/**
+ * Drop expired buckets so a long-lived (warm) serverless instance does not
+ * accumulate one Map entry per client IP / room / grant forever.
+ */
+function sweep(now: number): void {
+  if (now - lastSweep < SWEEP_EVERY_MS) return;
+  lastSweep = now;
+  for (const [key, bucket] of buckets) {
+    if (bucket.resetAt <= now) buckets.delete(key);
+  }
+}
 
 /**
  * Fixed-window limiter for a single process (PRD 16.5).
@@ -14,6 +28,7 @@ export function rateLimit(
   windowMs: number,
 ): { ok: boolean; retryAfterSeconds: number } {
   const now = Date.now();
+  sweep(now);
   const bucket = buckets.get(key);
   if (!bucket || bucket.resetAt <= now) {
     buckets.set(key, { count: 1, resetAt: now + windowMs });

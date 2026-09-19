@@ -117,11 +117,14 @@ ffmpeg -i in.mp4 -c:v h264_nvenc -preset p2 -cq 23 -c:a copy \
   event with its own wall clock, persists playback state to Postgres on every
   control event + periodic flush, and re-hydrates rooms from the DB — so a
   restart never loses the timeline.
-- **Video bytes never touch the sync server.** Browsers get either a redirect
-  (demo `url` sources) or the range-capable `/api/stream/[videoId]` endpoint,
-  which pulls byte ranges from Telegram via MTProto `upload.getFile` chunks
-  (teleproto `iterDownload`) and re-exposes them with correct `206/Content-Range`
-  semantics. Telegram ids are never sent to the client.
+- **Video bytes never touch Vercel.** Browsers get either a redirect (demo `url`
+  sources) or the range-capable `/stream/[videoId]` endpoint on the **sync
+  server host**, which pulls byte ranges from Telegram via MTProto
+  `upload.getFile` chunks (teleproto) and re-exposes them with correct
+  `206/Content-Range` semantics. Telegram ids are never sent to the client.
+  Keeping the single MTProto connection in one process is what keeps the
+  session valid — Telegram invalidates an auth key used concurrently from two
+  connections, and serverless instances are neither single nor long-lived.
 
 ### Sync model
 
@@ -156,8 +159,9 @@ because the httpOnly session cookie cannot be read by `WebSocket`.
 | --- | --- |
 | `DATABASE_URL` | Postgres connection |
 | `SESSION_SECRET` | HMAC key for sessions/grants/tickets — **required in production** |
-| `NEXT_PUBLIC_WS_URL` | browser → sync server URL (default `ws://localhost:3001`) |
+| `NEXT_PUBLIC_WS_URL` | browser → sync server URL (default `ws://localhost:3001`); its origin also serves `/stream/...` |
 | `WS_PORT` | sync server port |
+| `PUBLIC_STREAM_BASE` | optional: override the video-byte origin when it differs from the WS host |
 | `ROOM_TTL_HOURS` | room expiry (default 168 = 7 days) |
 | `STREAM_TOKEN_TTL_HOURS` | stream grant lifetime (default 12) |
 | `TELEGRAM_API_ID` / `TELEGRAM_API_HASH` / `TELEGRAM_SESSION` | MTProto credentials |
@@ -196,17 +200,17 @@ Dockerfile / Dockerfile.ws / docker-compose.yml
 ## Deployment
 
 - **App (Vercel):** standard Next.js deploy; set `DATABASE_URL`,
-  `SESSION_SECRET`, `NEXT_PUBLIC_WS_URL` (pointing at your sync host).
-  Demo `url` sources redirect; Telegram streaming runs through `/api/stream`
-  (note Vercel's function time/memory limits — for heavy use, self-host the
-  app container or move streaming to the sync host; the code is structured so
-  `lib/telegram.ts` can run in either).
+  `SESSION_SECRET`, `NEXT_PUBLIC_WS_URL` (pointing at your sync host). Vercel
+  only serves pages + JSON APIs: `url` sources redirect, Telegram video bytes
+  are served by the sync host, and `app/api/stream` never touches Telegram.
 - **Sync server:** any persistent Node host: `docker build -f Dockerfile.ws .`
   or `npm ci && npm run ws`. Needs `DATABASE_URL` + `SESSION_SECRET` (same
-  secret as the app). Quick-and-free from a home machine: run `npm run ws`
-  and expose it with `cloudflared tunnel --url http://localhost:3001`, then
-  set `NEXT_PUBLIC_WS_URL=wss://<tunnel-host>` in Vercel and redeploy (the
-  URL changes whenever the tunnel restarts).
+  secret as the app) and the `TELEGRAM_*` credentials — it is the only process
+  that talks MTProto, which is what keeps the session valid. Quick-and-free
+  from a home machine: run `npm run ws` and expose it with
+  `cloudflared tunnel --url http://localhost:3001`, then set
+  `NEXT_PUBLIC_WS_URL=wss://<tunnel-host>` in Vercel and redeploy (the URL
+  changes whenever the tunnel restarts; the stream URL follows it).
 - **DB:** managed Postgres (Neon/Supabase/RDS); run `npm run db:migrate`.
 - Rate limiting is in-process (single instance assumed — fine for 2 users;
   revisit with Redis only if you scale).

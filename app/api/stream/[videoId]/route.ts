@@ -2,47 +2,37 @@ import { eq } from "drizzle-orm";
 import { db } from "../../../../lib/db";
 import { videos } from "../../../../db/schema";
 import { verifyGrant } from "../../../../lib/auth";
-import { parseRange } from "../../../../lib/range";
 import { rateLimit } from "../../../../lib/rate-limit";
-import {
-  readTelegramRange,
-  telegramVideoInfo,
-  TelegramFileUnavailableError,
-  TelegramNotConfiguredError,
-} from "../../../../lib/telegram";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-// Long video streams must not be cut by the default function timeout.
-export const maxDuration = 300;
 
 /**
- * Range-style video delivery (PRD 6.4).
+ * Thin asset redirector — deliberately does NOT touch Telegram.
  *
- * - `url` sources redirect so the browser talks to the origin directly —
- *   Vercel never proxies those bytes (PRD 15).
- * - `telegram` sources are streamed from MTProto in chunks and re-exposed
- *   with correct byte-range semantics, so <video> can start, seek and
- *   buffer without ever downloading the whole file (POC B).
+ * Telegram permits one live MTProto connection per session, and Vercel runs
+ * many short-lived instances, so any Telegram work here would invalidate the
+ * session the sync server holds (observed: "Concurrent usage of the current
+ * session ... invalidated"). Movie bytes are served by the sync-server host
+ * instead (server/streamer.ts); keeping teleproto out of this route also
+ * removes ~2 MB from every Vercel function bundle.
  *
- * Access requires a short-lived signed grant (PRD 16.6) — no permanent
- * public movie URLs.
+ * `url` sources (demo/local media) still redirect so the browser fetches them
+ * directly from their origin.
  */
-
-async function handle(
+export async function GET(
   request: Request,
-  params: { videoId: string },
-  method: "GET" | "HEAD",
+  context: { params: Promise<{ videoId: string }> },
 ): Promise<Response> {
+  const { videoId } = await context.params;
   const url = new URL(request.url);
-  const { videoId } = params;
 
   if (!verifyGrant(videoId, url.searchParams.get("grant"))) {
     return new Response("Access expired. Rejoin the room.", { status: 403 });
   }
-  const rl = rateLimit(`stream:${videoId}:${url.searchParams.get("grant")?.slice(-12) ?? "?"}`, 1200, 60_000);
+  const rl = rateLimit(`stream:${videoId}`, 120, 60_000);
   if (!rl.ok) {
-    return new Response("Too many streaming requests.", { status: 429 });
+    return new Response("Too many requests.", { status: 429 });
   }
 
   const [video] = await db.select().from(videos).where(eq(videos.id, videoId)).limit(1);
@@ -54,98 +44,19 @@ async function handle(
     if (!video.url) {
       return new Response("This video is currently unavailable.", { status: 404 });
     }
-    if (method === "HEAD") {
-      return new Response(null, { status: 200 });
-    }
-    return new Response(null, { status: 302, headers: { location: video.url } });
-  }
-
-  if (!video.telegramChatId || video.telegramMessageId == null) {
-    return new Response("This video has no Telegram source.", { status: 404 });
-  }
-  const source = { chatId: video.telegramChatId, messageId: video.telegramMessageId };
-
-  let size: number;
-  let mimeType: string;
-  try {
-    const info = await telegramVideoInfo(source);
-    size = info.size;
-    mimeType = info.mimeType;
-  } catch (err) {
-    if (err instanceof TelegramNotConfiguredError) {
-      return new Response("Video source temporarily unavailable. Please try again.", {
-        status: 503,
-      });
-    }
-    if (err instanceof TelegramFileUnavailableError) {
-      return new Response(err.message, { status: 502 });
-    }
-    return new Response("Video source temporarily unavailable. Please try again.", {
-      status: 502,
-    });
-  }
-
-  const range = parseRange(request.headers.get("range"), size);
-  const start = range?.start ?? 0;
-  const end = range?.end ?? size - 1;
-
-  const baseHeaders: Record<string, string> = {
-    "content-type": mimeType,
-    "accept-ranges": "bytes",
-    "cache-control": "private, no-store",
-  };
-
-  if (method === "HEAD") {
     return new Response(null, {
-      status: range ? 206 : 200,
-      headers: {
-        ...baseHeaders,
-        "content-length": String(end - start + 1),
-        ...(range ? { "content-range": `bytes ${start}-${end}/${size}` } : {}),
-      },
+      status: 302,
+      headers: { location: video.url, "cache-control": "no-store" },
     });
   }
 
-  const controller = new AbortController();
-  const stream = new ReadableStream<Uint8Array>({
-    start(readController) {
-      (async () => {
-        try {
-          for await (const chunk of readTelegramRange(source, start, end, size, controller.signal)) {
-            if (controller.signal.aborted) break;
-            readController.enqueue(chunk);
-          }
-          readController.close();
-        } catch (err) {
-          readController.error(err);
-        }
-      })();
-    },
-    cancel() {
-      controller.abort();
-    },
-  });
-
-  return new Response(stream, {
-    status: range ? 206 : 200,
-    headers: {
-      ...baseHeaders,
-      "content-length": String(end - start + 1),
-      ...(range ? { "content-range": `bytes ${start}-${end}/${size}` } : {}),
-    },
-  });
-}
-
-export async function GET(
-  request: Request,
-  context: { params: Promise<{ videoId: string }> },
-): Promise<Response> {
-  return handle(request, await context.params, "GET");
+  return new Response("Video is served by the sync server.", { status: 409 });
 }
 
 export async function HEAD(
   request: Request,
   context: { params: Promise<{ videoId: string }> },
 ): Promise<Response> {
-  return handle(request, await context.params, "HEAD");
+  const response = await GET(request, context);
+  return new Response(null, { status: response.status, headers: response.headers });
 }

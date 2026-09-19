@@ -4,6 +4,7 @@ import { env } from "../lib/env";
 import { verifyWsTicket } from "../lib/auth";
 import { rateLimit } from "../lib/rate-limit";
 import { CHAT_MAX_LENGTH, type ClientEvent, type ServerEvent } from "../lib/protocol";
+import { handleStreamRequest } from "./streamer";
 import {
   allLiveRoomCodes,
   flushLiveRooms,
@@ -36,13 +37,25 @@ type SocketContext = {
 
 const wss = new WebSocketServer({
   server: createServer((req, res) => {
-    if (req.url === "/health") {
+    const url = new URL(req.url ?? "/", "http://internal");
+    if (url.pathname === "/health") {
       res.writeHead(200, { "content-type": "text/plain" });
       res.end("ok");
       return;
     }
-    res.writeHead(404);
-    res.end();
+    // Video bytes are served from this host (see server/streamer.ts) so the
+    // Vercel functions never proxy movie traffic.
+    void handleStreamRequest(req, res, url)
+      .then((handled) => {
+        if (handled) return;
+        res.writeHead(404);
+        res.end();
+      })
+      .catch((err) => {
+        console.error("[ws] http handler error:", err);
+        if (!res.headersSent) res.writeHead(500);
+        res.end();
+      });
   }).listen(env.wsPort),
 });
 
