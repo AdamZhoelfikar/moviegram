@@ -27,6 +27,11 @@ name in each, **Create Watch Room → Watch** in one, copy the invite link into
 the other, **Join room**, press play. The sync pill shows 🟢/🟡/🔴 and
 `↻ Sync` re-anchors manually.
 
+On phones the room stacks the player above a **Chat / Room** tab bar, controls
+use 44 px touch targets, tapping the picture shows/hides them, and the
+fullscreen button locks the screen to landscape (iOS uses the native video
+player). Invite links work across devices — open the same URL on a phone.
+
 <details>
 <summary>Manual setup (if you prefer, or no Docker)</summary>
 
