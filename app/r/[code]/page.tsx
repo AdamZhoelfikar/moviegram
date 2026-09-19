@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { db } from "../../../lib/db";
 import { roomMembers, rooms, videos } from "../../../db/schema";
 import { getSessionUser } from "../../../lib/session";
+import { getSyncHost } from "../../../lib/sync-host";
 import RoomClient from "../../../components/room/RoomClient";
 import JoinPrompt from "../../../components/room/JoinPrompt";
 
@@ -83,6 +84,10 @@ export default async function RoomPage({
     );
   }
 
+  // Discover the live sync host (laptop, VPS, rotated tunnel URL) at request
+  // time — the app never needs rebuilding when the host moves.
+  const syncHost = await getSyncHost().catch(() => null);
+
   return (
     <RoomClient
       inviteCode={row.room.inviteCode}
@@ -90,6 +95,8 @@ export default async function RoomPage({
       videoTitle={row.video.title}
       isHost={membership.role === "host"}
       displayName={user.displayName}
+      wsUrl={syncHost?.url ?? null}
+      syncOnline={syncHost ? syncHost.online : true}
     />
   );
 }

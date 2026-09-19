@@ -1,12 +1,13 @@
 import WebSocket from "ws";
+import { getSyncHost } from "../lib/sync-host";
 
 /**
  * Headless production QA: two users, room join over the tunnel WS,
- * host play → guest state, stream range fetch through Vercel → Telegram,
- * third user rejected. Usage: tsx scripts/qa-prod.ts
+ * host play → guest state, stream range fetch through the sync host →
+ * Telegram, third user rejected. Usage: tsx scripts/qa-prod.ts
  */
-const BASE = process.env.QA_BASE ?? "https://moviegram-r3b11en7c-adam-8a40.vercel.app";
-const WSS = process.env.QA_WSS ?? "wss://source-discounts-bbs-tcp.trycloudflare.com";
+const BASE = process.env.QA_BASE ?? "https://moviegram.vercel.app";
+let WSS = process.env.QA_WSS ?? "";
 const VIDEO = process.env.QA_VIDEO ?? "cb722943-8e27-4cb7-a8cb-7d523bbf1f72";
 
 async function login(name: string): Promise<string> {
@@ -60,6 +61,17 @@ async function main(): Promise<void> {
     results.push(`${pass ? "PASS" : "FAIL"} ${name}${detail ? ` — ${detail}` : ""}`);
     if (!pass) process.exitCode = 1;
   };
+
+  // Follow whatever host is live right now (tunnel URLs rotate).
+  if (!WSS) {
+    const host = await getSyncHost();
+    if (!host || !host.online) {
+      console.log(`FAIL sync host discovered — ${host ? `stale (${Math.round(host.ageMs / 1000)}s)` : "no row"}`);
+      process.exit(1);
+    }
+    WSS = host.url;
+    console.log(`(sync host: ${WSS})`);
+  }
 
   const cookieA = await login("QA-Adam");
   const cookieB = await login("QA-Friend");

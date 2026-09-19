@@ -4,6 +4,7 @@ import { env } from "../lib/env";
 import { verifyWsTicket } from "../lib/auth";
 import { rateLimit } from "../lib/rate-limit";
 import { CHAT_MAX_LENGTH, type ClientEvent, type ServerEvent } from "../lib/protocol";
+import { publishSyncHost } from "../lib/sync-host";
 import { handleStreamRequest } from "./streamer";
 import {
   allLiveRoomCodes,
@@ -330,5 +331,16 @@ const closing = () => {
 };
 process.on("SIGTERM", closing);
 process.on("SIGINT", closing);
+
+// Advertise this host so the Vercel app can find it without a rebuild, and
+// keep heartbeating so a stale row is detectable (see lib/sync-host.ts).
+const hostUrl = env.publicWsUrl || env.publicStreamBase;
+if (hostUrl) {
+  const beat = () => publishSyncHost(hostUrl).catch((err) => console.error("[ws] heartbeat failed:", err));
+  void beat();
+  setInterval(beat, 30_000).unref();
+} else {
+  console.log("[ws] PUBLIC_WS_URL not set — app will fall back to its build-time NEXT_PUBLIC_WS_URL");
+}
 
 console.log(`[ws] sync server listening on :${env.wsPort}`);

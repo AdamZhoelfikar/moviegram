@@ -15,17 +15,22 @@ import ChatPanel from "../chat/ChatPanel";
 import Participants from "./Participants";
 import InviteBar from "./InviteBar";
 
-const WS_BASE =
+// Build-time fallback for local development / self-hosted single-origin
+// deployments. In production the live host URL arrives as a prop, discovered
+// from the settings table at request time (see lib/sync-host.ts).
+const FALLBACK_WS_BASE =
   process.env.NEXT_PUBLIC_WS_URL && process.env.NEXT_PUBLIC_WS_URL.length > 0
     ? process.env.NEXT_PUBLIC_WS_URL
     : "ws://localhost:3001";
 
+function streamBaseFor(wsBase: string): string {
+  return wsBase.replace(/^ws/, "http").replace(/\/+$/, "");
+}
+
 // Video bytes come from the sync-server host, so a relative stream path is
 // resolved against the same origin as the WebSocket — one place to configure.
-const STREAM_BASE = WS_BASE.replace(/^ws/, "http").replace(/\/+$/, "");
-
-function resolveStreamPath(path: string): string {
-  return path.startsWith("/") ? `${STREAM_BASE}${path}` : path;
+function resolveStreamPath(wsBase: string, path: string): string {
+  return path.startsWith("/") ? `${streamBaseFor(wsBase)}${path}` : path;
 }
 
 type FloatingReaction = { id: number; emoji: string; name: string };
@@ -36,13 +41,18 @@ export default function RoomClient({
   videoTitle,
   isHost,
   displayName,
+  wsUrl,
+  syncOnline = true,
 }: {
   inviteCode: string;
   roomTitle: string;
   videoTitle: string;
   isHost: boolean;
   displayName: string;
+  wsUrl?: string | null;
+  syncOnline?: boolean;
 }): React.ReactElement {
+  const wsBase = wsUrl && wsUrl.length > 0 ? wsUrl : FALLBACK_WS_BASE;
   const [state, setState] = useState<RoomStateMessage | null>(null);
   const [stream, setStream] = useState<StreamDescriptor | null>(null);
   const [chat, setChat] = useState<ChatMessageDto[]>([]);
@@ -141,7 +151,7 @@ export default function RoomClient({
         ticketRef.current = { token: ticket, at: Date.now() };
       }
       const ws = new WebSocket(
-        `${WS_BASE}/?code=${encodeURIComponent(inviteCode)}&token=${encodeURIComponent(ticket)}`,
+        `${wsBase}/?code=${encodeURIComponent(inviteCode)}&token=${encodeURIComponent(ticket)}`,
       );
       wsRef.current = ws;
       // A StrictMode remount (or a superseded reconnect) can leave an older
@@ -238,7 +248,7 @@ export default function RoomClient({
     } catch {
       setBanner("Connection problem. Please try again.");
     }
-  }, [inviteCode, fetchHistory]);
+  }, [inviteCode, fetchHistory, wsBase]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -316,6 +326,15 @@ export default function RoomClient({
 
   return (
     <div className="relative flex h-dvh flex-col overflow-hidden bg-background">
+      {!syncOnline && (
+        <div className="safe-top flex items-center justify-center gap-2 border-b border-warn/40 bg-warn/10 px-3 py-2 text-center text-xs text-warn">
+          <span aria-hidden>⚠️</span>
+          <span>
+            Sync host is offline — video and syncing resume automatically when it
+            comes back.
+          </span>
+        </div>
+      )}
       {/* Phone top bar: title + sync dot + overflow menu. */}
       <header className="safe-top flex items-center gap-1 border-b border-line px-1.5 py-1 lg:hidden">
         <Link
@@ -435,7 +454,7 @@ export default function RoomClient({
               state={state}
               stream={
                 stream.kind === "telegram"
-                  ? { ...stream, path: resolveStreamPath(stream.path) }
+                  ? { ...stream, path: resolveStreamPath(wsBase, stream.path) }
                   : stream
               }
               isHost={isHost}

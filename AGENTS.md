@@ -73,6 +73,11 @@ video storage via `teleproto` (the maintained GramJS fork — `telegram` npm is 
   host; `app/api/stream/[videoId]` is a thin redirector for `url` sources only.
   Never import `lib/telegram.ts` from `app/` — it would put teleproto (~2 MB)
   back into every Vercel function and risk a second session.
+- The sync host **publishes its own URL** to the `settings` table
+  (`lib/sync-host.ts`, heartbeat every 30 s) and `app/r/[code]` reads it at
+  request time. That is why moving the host (new VPS, rotated tunnel URL) needs
+  no Vercel rebuild. A heartbeat older than 90 s counts as offline and the room
+  shows a warning instead of failing silently.
 - WS auth uses short-lived signed **tickets** returned by `POST /api/rooms/[code]/join`
   (session cookie is httpOnly and cannot be read by JS). Reconnects reuse the cached
   ticket; only a `forbidden` error forces a fresh join call. Do not reconnect through

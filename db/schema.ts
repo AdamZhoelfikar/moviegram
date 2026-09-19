@@ -131,3 +131,15 @@ export const watchHistory = pgTable(
   },
   (t) => [uniqueIndex("watch_history_user_video_idx").on(t.userId, t.videoId)],
 );
+
+/**
+ * Runtime-discovered sync host. The sync server publishes its public URL here
+ * on start and heartbeats it, so the app can follow the host wherever it runs
+ * (laptop, VPS, changing tunnel URL) without rebuilding Vercel for a new
+ * NEXT_PUBLIC_WS_URL.
+ */
+export const settings = pgTable("settings", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});

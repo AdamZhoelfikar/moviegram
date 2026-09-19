@@ -23,6 +23,9 @@ export const env = {
   // Public base URL of the sync-server host (e.g. https://xxx.trycloudflare.com).
   // When set, video bytes are served from there instead of Vercel functions.
   publicStreamBase: process.env.PUBLIC_STREAM_BASE ?? "",
+  // The sync host's own public origin (wss://… or https://…). Published to the
+  // settings table so the app discovers the host at runtime.
+  publicWsUrl: process.env.PUBLIC_WS_URL ?? "",
   telegramApiId: num("TELEGRAM_API_ID", 0),
   telegramApiHash: process.env.TELEGRAM_API_HASH ?? "",
   telegramSession: process.env.TELEGRAM_SESSION ?? "",
