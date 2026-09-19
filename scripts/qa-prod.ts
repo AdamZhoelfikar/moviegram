@@ -105,10 +105,16 @@ async function main(): Promise<void> {
   const forbidden = b.events.slice(guestTriesPlay).find((e) => e.type === "error" && e.code === "forbidden");
   ok("guest play rejected server-side", !!forbidden);
 
-  const rangeRes = await fetch(`${BASE}${stream.path}`, { headers: { range: "bytes=0-1023" } });
+  const streamPath = stream?.path ?? "";
+  // Relative stream paths are resolved against the sync host by the browser
+  // (see RoomClient.resolveStreamPath) — mirror that here.
+  const streamUrl = streamPath.startsWith("/")
+    ? `${WSS.replace(/^ws/, "http").replace(/\/+$/, "")}${streamPath}`
+    : streamPath;
+  const rangeRes = await fetch(streamUrl, { headers: { range: "bytes=0-1023" } });
   const buf = Buffer.from(await rangeRes.arrayBuffer());
   ok(
-    "stream 206 via Vercel→Telegram",
+    "stream 206 from sync host → Telegram",
     rangeRes.status === 206 && buf.length === 1024 && buf.subarray(4, 8).toString() === "ftyp",
     `status=${rangeRes.status} len=${buf.length} magic=${buf.subarray(4, 8).toString()}`,
   );

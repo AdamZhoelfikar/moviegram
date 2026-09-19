@@ -41,6 +41,16 @@ export async function handleStreamRequest(
   if (!match) return false;
 
   const method = req.method ?? "GET";
+  if (method === "OPTIONS") {
+    res.writeHead(204, {
+      "access-control-allow-origin": "*",
+      "access-control-allow-methods": "GET, HEAD, OPTIONS",
+      "access-control-allow-headers": "range",
+      "access-control-max-age": "86400",
+    });
+    res.end();
+    return true;
+  }
   if (method !== "GET" && method !== "HEAD") {
     fail(res, 405, "Method not allowed.");
     return true;
@@ -118,6 +128,11 @@ export async function handleStreamRequest(
     // Immutable Telegram document behind a signed grant: the browser may keep
     // what it downloaded, so seeks back do not re-fetch from Telegram.
     "cache-control": "private, max-age=3600, immutable",
+    // The app is served from a different origin (Vercel) than the bytes
+    // (sync host). Range requests are CORS-safelisted, but exposing these
+    // headers keeps canvas/subtitle consumers working.
+    "access-control-allow-origin": "*",
+    "access-control-expose-headers": "content-length, content-range, accept-ranges",
     ...(range ? { "content-range": `bytes ${start}-${end}/${size}` } : {}),
   };
 
