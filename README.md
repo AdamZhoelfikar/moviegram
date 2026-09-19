@@ -198,7 +198,10 @@ Dockerfile / Dockerfile.ws / docker-compose.yml
   `lib/telegram.ts` can run in either).
 - **Sync server:** any persistent Node host: `docker build -f Dockerfile.ws .`
   or `npm ci && npm run ws`. Needs `DATABASE_URL` + `SESSION_SECRET` (same
-  secret as the app).
+  secret as the app). Quick-and-free from a home machine: run `npm run ws`
+  and expose it with `cloudflared tunnel --url http://localhost:3001`, then
+  set `NEXT_PUBLIC_WS_URL=wss://<tunnel-host>` in Vercel and redeploy (the
+  URL changes whenever the tunnel restarts).
 - **DB:** managed Postgres (Neon/Supabase/RDS); run `npm run db:migrate`.
 - Rate limiting is in-process (single instance assumed — fine for 2 users;
   revisit with Redis only if you scale).
