@@ -13,6 +13,8 @@ import {
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// Long video streams must not be cut by the default function timeout.
+export const maxDuration = 300;
 
 /**
  * Range-style video delivery (PRD 6.4).
