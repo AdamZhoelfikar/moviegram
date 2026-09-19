@@ -19,7 +19,7 @@ export default function InviteBar({ inviteCode }: { inviteCode: string }): React
     <button
       type="button"
       onClick={copy}
-      className="flex max-w-[240px] items-center gap-2 truncate rounded-full border border-line px-3 py-1 text-xs text-muted transition hover:border-accent hover:text-foreground"
+      className="flex h-9 max-w-full items-center gap-2 truncate rounded-full border border-line px-3 text-xs text-muted transition hover:border-accent hover:text-foreground"
       title="Copy invite link"
     >
       <span className="truncate">{copied ? "Link copied ✓" : `Invite: ${inviteCode}`}</span>

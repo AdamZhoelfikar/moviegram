@@ -20,25 +20,34 @@ async function login(name: string): Promise<string> {
   return setCookie.map((c) => c.split(";")[0]).join("; ");
 }
 
-async function post(cookie: string, path: string, body?: unknown): Promise<{ status: number; data: any }> {
+type JsonRecord = Record<string, unknown>;
+
+type WsEvent = {
+  type: string;
+  code?: string;
+  state?: { playing?: boolean; positionSeconds?: number };
+  stream?: { path?: string };
+};
+
+async function post(cookie: string, path: string, body?: unknown): Promise<{ status: number; data: JsonRecord }> {
   const res = await fetch(`${BASE}${path}`, {
     method: "POST",
     headers: { "content-type": "application/json", cookie },
     body: body ? JSON.stringify(body) : undefined,
   });
-  return { status: res.status, data: await res.json().catch(() => ({})) };
+  return { status: res.status, data: (await res.json().catch(() => ({}))) as JsonRecord };
 }
 
-function connectWs(code: string, ticket: string): Promise<{ ws: WebSocket; events: any[] }> {
+function connectWs(code: string, ticket: string): Promise<{ ws: WebSocket; events: WsEvent[] }> {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(`${WSS}/?code=${code}&token=${ticket}`);
-    const events: any[] = [];
+    const events: WsEvent[] = [];
     const timer = setTimeout(() => reject(new Error("ws connect timeout")), 15_000);
     ws.on("open", () => {
       clearTimeout(timer);
       resolve({ ws, events });
     });
-    ws.on("message", (raw) => events.push(JSON.parse(raw.toString())));
+    ws.on("message", (raw) => events.push(JSON.parse(raw.toString()) as WsEvent));
     ws.on("error", reject);
   });
 }
@@ -65,8 +74,8 @@ async function main(): Promise<void> {
   const joinC = await post(await login("QA-Third"), `/api/rooms/${code}/join`);
   ok("third user rejected", joinC.status === 409, `status=${joinC.status}`);
 
-  const a = await connectWs(code, joinA.data.ticket);
-  const b = await connectWs(code, joinB.data.ticket);
+  const a = await connectWs(code, joinA.data.ticket as string);
+  const b = await connectWs(code, joinB.data.ticket as string);
   await wait(8000);
   const joinedA = a.events.find((e) => e.type === "joined");
   const joinedB = b.events.find((e) => e.type === "joined");
@@ -84,7 +93,11 @@ async function main(): Promise<void> {
   a.ws.send(JSON.stringify({ type: "play", position: 30 }));
   await wait(1500);
   const playState = b.events.find((e) => e.type === "state" && e.state?.playing === true);
-  ok("guest receives host play", !!playState, playState ? `pos=${playState.state.positionSeconds}` : "none");
+  ok(
+    "guest receives host play",
+    !!playState,
+    playState?.state ? `pos=${playState.state.positionSeconds}` : "none",
+  );
 
   const guestTriesPlay = b.events.length;
   b.ws.send(JSON.stringify({ type: "play", position: 99 }));

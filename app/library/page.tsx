@@ -11,7 +11,7 @@ export default async function LibraryPage(): Promise<React.ReactElement> {
   const user = await getSessionUser();
   if (!user) {
     return (
-      <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col justify-center gap-6 px-6">
+      <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col justify-center gap-6 px-5">
         <Link href="/" className="text-sm text-muted">
           ← Home
         </Link>
@@ -43,8 +43,8 @@ export default async function LibraryPage(): Promise<React.ReactElement> {
     .limit(100);
 
   return (
-    <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col px-6 py-6">
-      <header className="mb-8 flex items-center justify-between">
+    <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col px-5 py-5 sm:px-6 sm:py-6">
+      <header className="mb-6 flex items-center justify-between gap-3 sm:mb-8">
         <div className="flex items-baseline gap-4">
           <Link href="/" className="text-lg font-bold tracking-tight">
             Movie<span className="text-accent">gram</span>
@@ -112,7 +112,11 @@ export default async function LibraryPage(): Promise<React.ReactElement> {
                   </p>
                 )}
                 <div className="mt-auto pt-2">
-                  <CreateRoomButton videoId={video.id} label="Watch" />
+                  <CreateRoomButton
+                    videoId={video.id}
+                    label="Watch"
+                    className="h-11 w-full rounded-lg bg-accent px-4 text-sm font-semibold text-black transition hover:bg-accent-dim disabled:opacity-50 sm:h-10 sm:w-auto"
+                  />
                 </div>
               </div>
             </article>

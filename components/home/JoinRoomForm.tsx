@@ -21,11 +21,14 @@ export default function JoinRoomForm() {
         onChange={(e) => setCode(e.target.value)}
         placeholder="Invite code"
         maxLength={16}
-        className="flex-1 rounded-lg border border-line bg-surface-2 px-3 py-2 text-sm outline-none focus:border-accent"
+        autoCapitalize="characters"
+        autoComplete="off"
+        enterKeyHint="go"
+        className="h-11 min-w-0 flex-1 rounded-lg border border-line bg-surface-2 px-3 text-base outline-none focus:border-accent sm:text-sm"
       />
       <button
         type="submit"
-        className="rounded-lg border border-line bg-surface-2 px-4 py-2 text-sm font-semibold transition hover:border-accent"
+        className="h-11 shrink-0 rounded-lg border border-line bg-surface-2 px-4 text-sm font-semibold transition hover:border-accent"
       >
         Join
       </button>

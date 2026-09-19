@@ -45,7 +45,7 @@ export default function JoinPrompt({
   }
 
   return (
-    <main className="mx-auto flex min-h-dvh max-w-md flex-col items-center justify-center gap-6 px-6">
+    <main className="mx-auto flex min-h-dvh max-w-md flex-col items-center justify-center gap-6 px-5">
       <div className="text-center">
         <p className="text-xs uppercase tracking-[0.3em] text-accent">Watch room</p>
         <h1 className="mt-2 text-2xl font-bold">{roomTitle}</h1>
@@ -73,7 +73,7 @@ export default function JoinPrompt({
             type="button"
             onClick={join}
             disabled={busy}
-            className="w-full rounded-lg bg-accent px-6 py-3 text-sm font-semibold text-black transition hover:bg-accent-dim disabled:opacity-50"
+            className="h-12 w-full rounded-lg bg-accent px-6 text-sm font-semibold text-black transition hover:bg-accent-dim disabled:opacity-50"
           >
             {busy ? "Joining..." : "Join room"}
           </button>

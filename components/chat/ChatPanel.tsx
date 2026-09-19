@@ -90,14 +90,14 @@ export default function ChatPanel({
         ))}
       </div>
 
-      <div className="border-t border-line px-3 py-2">
-        <div className="mb-2 flex items-center gap-1">
+      <div className="safe-bottom border-t border-line px-3 py-2">
+        <div className="mb-1.5 flex items-center gap-0.5">
           {REACTION_EMOJIS.map((emoji) => (
             <button
               key={emoji}
               type="button"
               onClick={() => onReact(emoji)}
-              className="rounded-lg px-1.5 py-1 text-lg transition hover:bg-surface-2"
+              className="flex h-11 w-11 items-center justify-center rounded-lg text-xl transition active:bg-surface-2 hover:bg-surface-2"
               aria-label={`React ${emoji}`}
             >
               {emoji}
@@ -109,7 +109,7 @@ export default function ChatPanel({
             type="button"
             onClick={() => setAttachTimestamp((v) => !v)}
             className={cn(
-              "rounded-lg border px-2 py-2 text-xs transition",
+              "flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border text-xs transition",
               attachTimestamp
                 ? "border-accent text-accent"
                 : "border-line text-muted hover:border-accent-dim",
@@ -126,12 +126,13 @@ export default function ChatPanel({
             }}
             maxLength={CHAT_MAX_LENGTH}
             placeholder="Message…"
-            className="min-w-0 flex-1 rounded-lg border border-line bg-surface-2 px-3 py-2 text-sm outline-none focus:border-accent"
+            enterKeyHint="send"
+            className="h-11 min-w-0 flex-1 rounded-lg border border-line bg-surface-2 px-3 text-base outline-none focus:border-accent sm:text-sm"
           />
           <button
             type="button"
             onClick={send}
-            className="rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-black transition hover:bg-accent-dim"
+            className="h-11 shrink-0 rounded-lg bg-accent px-4 text-sm font-semibold text-black transition hover:bg-accent-dim"
           >
             Send
           </button>

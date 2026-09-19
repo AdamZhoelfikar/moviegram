@@ -33,11 +33,11 @@ export default async function Home(): Promise<React.ReactElement> {
 
   return (
     <main className="flex flex-1 flex-col">
-      <header className="flex items-center justify-between px-6 py-4 md:px-10">
+      <header className="flex items-center justify-between px-5 py-3 sm:px-6 sm:py-4 md:px-10">
         <Link href="/" className="text-lg font-bold tracking-tight">
           Movie<span className="text-accent">gram</span>
         </Link>
-        <nav className="flex items-center gap-6 text-sm text-muted">
+        <nav className="flex items-center gap-4 text-sm text-muted sm:gap-6">
           <Link href="/" className="text-foreground">
             Home
           </Link>
@@ -52,25 +52,25 @@ export default async function Home(): Promise<React.ReactElement> {
         </nav>
       </header>
 
-      <section className="flex flex-1 flex-col items-center justify-center gap-8 px-6 py-16 text-center">
-        <div className="space-y-4">
-          <p className="text-xs font-semibold uppercase tracking-[0.35em] text-accent">
+      <section className="flex flex-1 flex-col items-center justify-center gap-6 px-5 py-10 text-center sm:gap-8 sm:py-16">
+        <div className="space-y-3 sm:space-y-4">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.25em] text-accent sm:text-xs sm:tracking-[0.35em]">
             Private watch parties
           </p>
-          <h1 className="text-5xl font-bold tracking-tight md:text-6xl">
+          <h1 className="text-3xl font-bold tracking-tight sm:text-5xl md:text-6xl">
             Watch together.
           </h1>
-          <p className="mx-auto max-w-md text-lg text-muted">
+          <p className="mx-auto max-w-md text-base text-muted sm:text-lg">
             One room. One timeline. You and one friend, the same movie, the
             exact same second.
           </p>
         </div>
 
-        <div className="flex flex-col items-center gap-6">
-          <div className="flex flex-wrap items-center justify-center gap-3">
+        <div className="flex w-full flex-col items-center gap-5 sm:gap-6">
+          <div className="flex w-full flex-col items-stretch justify-center gap-3 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center">
             <Link
               href="/library"
-              className="rounded-lg bg-accent px-6 py-3 text-sm font-semibold text-black transition hover:bg-accent-dim"
+              className="flex h-12 items-center justify-center rounded-lg bg-accent px-6 text-sm font-semibold text-black transition hover:bg-accent-dim sm:h-11"
             >
               Create Watch Room
             </Link>
@@ -85,7 +85,7 @@ export default async function Home(): Promise<React.ReactElement> {
       </section>
 
       {continueWatching.length > 0 && (
-        <section className="border-t border-line px-6 py-8 md:px-10">
+        <section className="border-t border-line px-5 py-6 sm:px-6 sm:py-8 md:px-10">
           <h2 className="mb-4 text-sm font-semibold uppercase tracking-widest text-muted">
             Continue watching
           </h2>
@@ -125,7 +125,7 @@ export default async function Home(): Promise<React.ReactElement> {
         </section>
       )}
 
-      <footer className="px-6 py-6 text-center text-xs text-muted md:px-10">
+      <footer className="px-5 py-6 text-center text-xs text-muted sm:px-6 md:px-10">
         Movies are better together. Private by design — only people with your
         invite link can join.
       </footer>

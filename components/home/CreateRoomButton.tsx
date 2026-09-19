@@ -39,7 +39,7 @@ export default function CreateRoomButton({
   }
 
   return (
-    <span className="inline-flex flex-col items-start gap-1">
+    <span className="flex w-full flex-col items-stretch gap-1 sm:w-auto sm:items-start">
       <button
         type="button"
         disabled={busy}

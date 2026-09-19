@@ -49,12 +49,14 @@ export default function NameGate({ redirectTo }: { redirectTo?: string }) {
           onChange={(e) => setName(e.target.value)}
           maxLength={32}
           placeholder="e.g. Adam"
-          className="flex-1 rounded-lg border border-line bg-surface-2 px-3 py-2 text-sm outline-none focus:border-accent"
+          autoComplete="nickname"
+          enterKeyHint="go"
+          className="h-11 min-w-0 flex-1 rounded-lg border border-line bg-surface-2 px-3 text-base outline-none focus:border-accent sm:text-sm"
         />
         <button
           type="submit"
           disabled={busy}
-          className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-black transition hover:bg-accent-dim disabled:opacity-50"
+          className="h-11 shrink-0 rounded-lg bg-accent px-4 text-sm font-semibold text-black transition hover:bg-accent-dim disabled:opacity-50"
         >
           {busy ? "..." : "Continue"}
         </button>

@@ -28,6 +28,10 @@ type FloatingReaction = { id: number; emoji: string; name: string };
 
 const SPEED_OPTIONS = [0.75, 1, 1.25, 1.5, 2];
 
+// 44px touch targets on phones, tighter on desktop pointers.
+const CTRL_BTN =
+  "flex h-11 w-11 shrink-0 items-center justify-center text-white/80 transition hover:text-white disabled:opacity-40 sm:h-9 sm:w-9";
+
 const VideoPlayer = forwardRef<VideoPlayerHandle, {
   state: RoomStateMessage;
   stream: StreamDescriptor;
@@ -45,6 +49,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, {
   const nudgeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrubbingRef = useRef(false);
+  const controlsVisibleRef = useRef(true);
   const stateRef = useRef(state);
   const getExpectedRef = useRef(getExpected);
   const isHostRef = useRef(isHost);
@@ -60,10 +65,15 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, {
   const [buffering, setBuffering] = useState(false);
   const [autoplayBlocked, setAutoplayBlocked] = useState(false);
   const [codecUnsupported, setCodecUnsupported] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [controlsVisible, setControlsVisible] = useState(true);
   const [volume, setVolume] = useState(1);
   const [muted, setMuted] = useState(false);
   const [scrubValue, setScrubValue] = useState<number | null>(null);
+
+  useEffect(() => {
+    controlsVisibleRef.current = controlsVisible;
+  }, [controlsVisible]);
 
   const src = stream.kind === "url" ? stream.url : stream.path;
 
@@ -142,6 +152,16 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, {
     hideTimerRef.current = setTimeout(() => setControlsVisible(false), 3000);
   }, []);
 
+  // Phones have no hover: tapping the picture is how you summon/hide controls.
+  const toggleControls = useCallback(() => {
+    if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    const next = !controlsVisibleRef.current;
+    setControlsVisible(next);
+    if (next) {
+      hideTimerRef.current = setTimeout(() => setControlsVisible(false), 3000);
+    }
+  }, []);
+
   const togglePlay = useCallback(() => {
     const el = videoRef.current;
     const snapshot = stateRef.current;
@@ -178,12 +198,51 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, {
     [onControl],
   );
 
+  const lockLandscape = useCallback(() => {
+    const orientation = screen.orientation as
+      | (ScreenOrientation & { lock?: (orientation: string) => Promise<void> })
+      | undefined;
+    void orientation?.lock?.("landscape").catch(() => undefined);
+  }, []);
+
   const toggleFullscreen = useCallback(() => {
     const container = containerRef.current;
-    if (!container) return;
-    if (document.fullscreenElement) void document.exitFullscreen();
-    else void container.requestFullscreen().catch(() => undefined);
-  }, []);
+    const el = videoRef.current;
+    if (!container || !el) return;
+
+    if (document.fullscreenElement) {
+      void document.exitFullscreen().catch(() => undefined);
+      screen.orientation?.unlock?.();
+      return;
+    }
+
+    // iPhone Safari only allows fullscreen on the <video> itself; the native
+    // player handles rotation on its own.
+    const iosVideo = el as HTMLVideoElement & { webkitEnterFullscreen?: () => void };
+    if (typeof container.requestFullscreen !== "function") {
+      iosVideo.webkitEnterFullscreen?.();
+      return;
+    }
+
+    // Phones: go fullscreen, then rotate to landscape so the movie fills the
+    // screen (screen.orientation.lock needs an active fullscreen element and
+    // is unsupported on Firefox/desktop — fail quietly there).
+    void container
+      .requestFullscreen({ navigationUI: "hide" })
+      .then(() => lockLandscape())
+      .catch(() => iosVideo.webkitEnterFullscreen?.());
+  }, [lockLandscape]);
+
+  useEffect(() => {
+    const onChange = (): void => {
+      const active = Boolean(document.fullscreenElement);
+      setIsFullscreen(active);
+      if (active) lockLandscape();
+      else screen.orientation?.unlock?.();
+    };
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, [lockLandscape]);
 
   const onKeyDown = useCallback(
     (event: React.KeyboardEvent) => {
@@ -241,13 +300,13 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, {
       ref={containerRef}
       tabIndex={0}
       onMouseMove={showControls}
-      onTouchStart={showControls}
       onKeyDown={onKeyDown}
-      className="group relative flex h-full max-h-full flex-col overflow-hidden rounded-xl bg-black outline-none"
+      className="player-shell group relative flex h-full max-h-full select-none flex-col overflow-hidden rounded-none bg-black outline-none lg:rounded-xl"
     >
       <video
         ref={videoRef}
         playsInline
+        onClick={toggleControls}
         className="min-h-0 w-full flex-1 bg-black"
         onLoadedMetadata={(e) => {
           const el = e.currentTarget;
@@ -315,13 +374,13 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, {
       )}
 
       <div
-        className={`absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/90 via-black/50 to-transparent px-4 pb-3 pt-10 transition-opacity ${
+        className={`safe-bottom absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/90 via-black/50 to-transparent px-2 pt-8 transition-opacity sm:px-4 sm:pt-10 ${
           controlsVisible || !state.playing ? "opacity-100" : "opacity-0"
         }`}
       >
         <input
           type="range"
-          className="progress w-full"
+          className="progress h-6 w-full sm:h-4"
           min={0}
           max={Math.max(progressMax, 0.1)}
           step={0.1}
@@ -349,15 +408,15 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, {
             commitSeek(value);
           }}
         />
-        <div className="flex items-center gap-3 text-sm">
+        <div className="flex items-center gap-1 text-sm sm:gap-3">
           <button
             type="button"
             onClick={togglePlay}
             disabled={!isHost}
             title={isHost ? "Play/Pause" : "Only the host controls playback"}
-            className="text-white transition disabled:opacity-40"
+            className={CTRL_BTN}
           >
-            {state.playing ? <Pause size={20} /> : <Play size={20} />}
+            {state.playing ? <Pause size={22} /> : <Play size={22} />}
           </button>
           <span className="font-mono text-xs text-white/80">
             {formatTime(nowDisplay)} / {formatTime(duration || state.durationSeconds)}
@@ -366,14 +425,14 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, {
             <button
               type="button"
               onClick={() => setMuted((m) => !m)}
-              className="text-white/80 transition hover:text-white"
+              className={CTRL_BTN}
               aria-label="Mute"
             >
-              {muted || volume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}
+              {muted || volume === 0 ? <VolumeX size={20} /> : <Volume2 size={20} />}
             </button>
             <input
               type="range"
-              className="progress h-1 w-16"
+              className="progress hidden h-1 w-16 sm:block"
               min={0}
               max={1}
               step={0.05}
@@ -389,7 +448,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, {
             <select
               value={state.playbackRate}
               onChange={(e) => setRate(Number(e.target.value))}
-              className="rounded border border-white/20 bg-black/60 px-1 py-0.5 text-xs text-white/80"
+              className="h-11 rounded border border-white/20 bg-black/60 px-1 text-xs text-white/80 sm:h-8"
               aria-label="Playback speed"
             >
               {SPEED_OPTIONS.map((option) => (
@@ -407,7 +466,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, {
               if (document.pictureInPictureElement) void document.exitPictureInPicture();
               else void el.requestPictureInPicture().catch(() => undefined);
             }}
-            className="text-white/80 transition hover:text-white"
+            className={`${CTRL_BTN} hidden sm:flex`}
             aria-label="Picture in picture"
           >
             <PictureInPicture2 size={18} />
@@ -415,10 +474,10 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, {
           <button
             type="button"
             onClick={toggleFullscreen}
-            className="text-white/80 transition hover:text-white"
-            aria-label="Fullscreen"
+            className={CTRL_BTN}
+            aria-label={isFullscreen ? "Exit fullscreen" : "Fullscreen (landscape)"}
           >
-            {document.fullscreenElement ? <Minimize size={18} /> : <Expand size={18} />}
+            {isFullscreen ? <Minimize size={20} /> : <Expand size={20} />}
           </button>
         </div>
       </div>

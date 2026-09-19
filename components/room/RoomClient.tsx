@@ -45,6 +45,8 @@ export default function RoomClient({
   const [driftMs, setDriftMs] = useState(0);
   const [floating, setFloating] = useState<FloatingReaction[]>([]);
   const [cinema, setCinema] = useState(false);
+  const [mobileTab, setMobileTab] = useState<"chat" | "room">("chat");
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const wsRef = useRef<WebSocket | null>(null);
   const stateRef = useRef<RoomStateMessage | null>(null);
@@ -283,10 +285,90 @@ export default function RoomClient({
       ? "syncing"
       : "synced";
 
+  const syncLabel =
+    syncStatus === "synced"
+      ? "Synced"
+      : syncStatus === "syncing"
+        ? "Syncing..."
+        : "Connection unstable";
+  const syncDot = syncStatus === "synced" ? "🟢" : syncStatus === "syncing" ? "🟡" : "🔴";
+  const syncTone =
+    syncStatus === "synced"
+      ? "border-ok/40 text-ok"
+      : syncStatus === "syncing"
+        ? "border-warn/40 text-warn"
+        : "border-bad/40 text-bad";
+
+  const tabClass = (active: boolean): string =>
+    `flex-1 py-3 text-sm font-medium transition ${
+      active ? "border-b-2 border-accent text-foreground" : "text-muted"
+    }`;
+
   return (
-    <div className="flex h-dvh flex-col overflow-hidden bg-background">
+    <div className="relative flex h-dvh flex-col overflow-hidden bg-background">
+      {/* Phone top bar: title + sync dot + overflow menu. */}
+      <header className="safe-top flex items-center gap-1 border-b border-line px-1.5 py-1 lg:hidden">
+        <Link
+          href="/library"
+          aria-label="Back to library"
+          className="flex h-11 w-11 shrink-0 items-center justify-center text-lg text-muted"
+        >
+          ←
+        </Link>
+        <div className="min-w-0 flex-1">
+          <h1 className="truncate text-sm font-semibold">{state?.title ?? roomTitle}</h1>
+          <p className="truncate text-[11px] text-muted">
+            {state?.videoTitle ?? videoTitle}
+          </p>
+        </div>
+        <span
+          className={`flex h-8 shrink-0 items-center gap-1 rounded-full border px-2 text-xs ${syncTone}`}
+          title={syncLabel}
+        >
+          <span aria-hidden>{syncDot}</span>
+          <span className="sr-only">{syncLabel}</span>
+        </span>
+        <button
+          type="button"
+          onClick={() => setMenuOpen((v) => !v)}
+          aria-label="Room menu"
+          aria-expanded={menuOpen}
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-line text-muted"
+        >
+          ⋯
+        </button>
+      </header>
+
+      {menuOpen && (
+        <div className="absolute right-2 top-14 z-30 flex w-60 flex-col gap-1 rounded-xl border border-line bg-surface p-2 shadow-2xl lg:hidden">
+          <button
+            type="button"
+            onClick={() => {
+              sendEvent({ type: "sync" });
+              setMenuOpen(false);
+            }}
+            className="flex h-11 items-center rounded-lg px-3 text-left text-sm transition active:bg-surface-2"
+          >
+            ↻ Resync
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              toggleCinema();
+              setMenuOpen(false);
+            }}
+            className="flex h-11 items-center rounded-lg px-3 text-left text-sm transition active:bg-surface-2"
+          >
+            {cinema ? "Exit cinema" : "Cinema mode"}
+          </button>
+          <div className="flex h-11 items-center px-1">
+            <InviteBar inviteCode={inviteCode} />
+          </div>
+        </div>
+      )}
+
       <header
-        className={`flex items-center gap-4 border-b border-line px-4 py-3 transition ${
+        className={`hidden items-center gap-4 border-b border-line px-4 py-3 transition lg:flex ${
           cinema ? "pointer-events-none absolute z-20 w-full bg-gradient-to-b from-black/70 to-transparent opacity-0 hover:opacity-100" : ""
         }`}
       >
@@ -304,24 +386,10 @@ export default function RoomClient({
           {!cinema && <Participants participants={state?.participants ?? []} />}
           <div className="flex items-center gap-2">
             <span
-              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs ${
-                syncStatus === "synced"
-                  ? "border-ok/40 text-ok"
-                  : syncStatus === "syncing"
-                    ? "border-warn/40 text-warn"
-                    : "border-bad/40 text-bad"
-              }`}
+              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs ${syncTone}`}
             >
-              <span aria-hidden>
-                {syncStatus === "synced" ? "🟢" : syncStatus === "syncing" ? "🟡" : "🔴"}
-              </span>
-              {reconnecting
-                ? "Reconnecting..."
-                : syncStatus === "synced"
-                  ? "Synced"
-                  : syncStatus === "syncing"
-                    ? "Syncing..."
-                    : "Connection unstable"}
+              <span aria-hidden>{syncDot}</span>
+              {reconnecting ? "Reconnecting..." : syncLabel}
             </span>
             <button
               type="button"
@@ -343,8 +411,14 @@ export default function RoomClient({
         </div>
       </header>
 
-      <main className="flex min-h-0 flex-1">
-        <section className={`min-w-0 flex-1 ${cinema ? "" : "p-4"}`}>
+      <main className="flex min-h-0 flex-1 flex-col lg:flex-row">
+        <section
+          className={`w-full shrink-0 ${
+            cinema
+              ? "min-h-0 flex-1"
+              : "aspect-video bg-black lg:aspect-auto lg:min-h-0 lg:flex-1 lg:bg-transparent lg:p-4"
+          }`}
+        >
           {state && stream ? (
             <VideoPlayer
               ref={playerRef}
@@ -357,13 +431,29 @@ export default function RoomClient({
               floating={floating}
             />
           ) : (
-            <div className="flex h-full min-h-[240px] items-center justify-center rounded-xl border border-line bg-surface text-sm text-muted">
+            <div className="flex h-full min-h-[240px] items-center justify-center rounded-xl border border-line bg-surface p-4 text-center text-sm text-muted">
               {banner ?? "Connecting to the room..."}
             </div>
           )}
         </section>
+
         {!cinema && (
-          <aside className="flex w-80 shrink-0 flex-col border-l border-line">
+          <div className="flex shrink-0 border-b border-line lg:hidden">
+            <button type="button" onClick={() => setMobileTab("chat")} className={tabClass(mobileTab === "chat")}>
+              Chat
+            </button>
+            <button type="button" onClick={() => setMobileTab("room")} className={tabClass(mobileTab === "room")}>
+              Room
+            </button>
+          </div>
+        )}
+
+        {!cinema && (
+          <aside
+            className={`min-h-0 flex-1 flex-col lg:flex lg:w-80 lg:flex-none lg:border-l lg:border-line ${
+              mobileTab === "chat" ? "flex" : "hidden"
+            }`}
+          >
             <ChatPanel
               messages={chat}
               myName={displayName}
@@ -378,16 +468,61 @@ export default function RoomClient({
             />
           </aside>
         )}
+
+        {!cinema && mobileTab === "room" && (
+          <section className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 lg:hidden">
+            <div className="rounded-xl border border-line bg-surface p-4">
+              <h2 className="text-sm font-semibold">Invite your friend</h2>
+              <p className="mt-1 text-xs text-muted">
+                Send this link — it works on phones too. Only the first two people can join.
+              </p>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <InviteBar inviteCode={inviteCode} />
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-line bg-surface p-4">
+              <h2 className="text-sm font-semibold">In the room</h2>
+              <div className="mt-3">
+                <Participants participants={state?.participants ?? []} />
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => sendEvent({ type: "sync" })}
+                className="h-11 rounded-lg border border-line px-4 text-sm transition active:bg-surface-2"
+              >
+                ↻ Resync
+              </button>
+              <button
+                type="button"
+                onClick={toggleCinema}
+                className="h-11 rounded-lg border border-line px-4 text-sm transition active:bg-surface-2"
+              >
+                {cinema ? "Exit cinema" : "Cinema mode"}
+              </button>
+            </div>
+
+            <p className="pb-4 text-xs text-muted">
+              {isHost
+                ? "You are the host: play, pause and seek control both of you."
+                : "The host controls playback — your player follows automatically."}
+            </p>
+          </section>
+        )}
       </main>
 
       {banner && (
-        <div className="fixed bottom-4 left-1/2 z-50 flex max-w-md -translate-x-1/2 items-center gap-3 rounded-xl border border-line bg-surface px-4 py-3 text-sm shadow-xl">
+        <div className="safe-bottom fixed inset-x-3 bottom-0 z-50 mx-auto flex max-w-md items-center gap-3 rounded-xl border border-line bg-surface px-4 py-3 text-sm shadow-xl sm:left-1/2 sm:right-auto sm:-translate-x-1/2">
           <span>{banner}</span>
           {!terminal && (
             <button
               type="button"
-              className="text-muted hover:text-foreground"
+              className="ml-auto text-muted hover:text-foreground"
               onClick={() => setBanner(null)}
+              aria-label="Dismiss"
             >
               ✕
             </button>

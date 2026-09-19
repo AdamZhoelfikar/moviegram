@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -18,13 +18,22 @@ export const metadata: Metadata = {
     "Private 2-person watch parties. One room. One timeline. Play, pause and seek stay in sync.",
 };
 
+// viewport-fit=cover lets the room layout use the full phone screen (notch /
+// home bar) while safe-area padding keeps controls reachable.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: "#08080c",
+};
+
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col bg-background text-foreground">{children}</body>
+      <body className="flex min-h-dvh flex-col bg-background text-foreground">{children}</body>
     </html>
   );
 }
