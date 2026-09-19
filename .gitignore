@@ -54,3 +54,6 @@ next-env.d.ts
 
 # private product spec — never published
 prd.md
+
+# vercel/neon agent skills (installed by vercel CLI)
+.agents/
