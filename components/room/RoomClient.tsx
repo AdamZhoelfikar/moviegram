@@ -327,12 +327,19 @@ export default function RoomClient({
   return (
     <div className="relative flex h-dvh flex-col overflow-hidden bg-background">
       {!syncOnline && (
-        <div className="safe-top flex items-center justify-center gap-2 border-b border-warn/40 bg-warn/10 px-3 py-2 text-center text-xs text-warn">
+        <div className="safe-top flex flex-wrap items-center justify-center gap-2 border-b border-warn/40 bg-warn/10 px-3 py-2 text-center text-xs text-warn">
           <span aria-hidden>⚠️</span>
           <span>
             Sync host is offline — video and syncing resume automatically when it
             comes back.
           </span>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="rounded-full border border-warn/50 px-2.5 py-1 font-semibold text-warn transition hover:bg-warn/10"
+          >
+            ↻ Reload
+          </button>
         </div>
       )}
       {/* Phone top bar: title + sync dot + overflow menu. */}

@@ -37,6 +37,11 @@ type LiveRoom = {
 };
 
 const liveRooms = new Map<string, LiveRoom>();
+// Two browsers often join a brand-new room within milliseconds of each other.
+// Without this, both would hydrate and the second write would orphan the first
+// room object (its sockets stop receiving broadcasts). One in-flight hydration
+// per code, shared by everyone waiting for it.
+const hydrating = new Map<string, Promise<{ room?: LiveRoom; error?: "not_found" | "room_expired" | "room_ended" }>>();
 
 export function liveRoomByCode(code: string): LiveRoom | undefined {
   return liveRooms.get(code.toLowerCase());
@@ -155,15 +160,39 @@ export async function loadRoom(
     return { room: cached };
   }
 
+  const inflight = hydrating.get(key);
+  if (inflight) return inflight;
+
+  const promise = hydrateRoom(key, inviteCode).finally(() => hydrating.delete(key));
+  hydrating.set(key, promise);
+  return promise;
+}
+
+async function hydrateRoom(
+  key: string,
+  inviteCode: string,
+): Promise<{ room?: LiveRoom; error?: "not_found" | "room_expired" | "room_ended" }> {
+  // Room + video + roster in one round trip (left join fans out per member),
+  // plus the timeline the room would be at right now using the DB clock so the
+  // app server and the sync server never disagree about elapsed time.
   const rows = await db
     .select({
       room: rooms,
       video: videos,
+      memberUserId: roomMembers.userId,
+      memberRole: roomMembers.role,
+      memberName: users.displayName,
+      position: sql<number>`case when ${rooms.playing} then
+        ${rooms.positionSeconds} + extract(epoch from (now() - ${rooms.serverTime})) * ${rooms.playbackRate}
+      else ${rooms.positionSeconds} end`,
+      dbNow: sql<number>`extract(epoch from now()) * 1000`,
     })
     .from(rooms)
     .innerJoin(videos, eq(rooms.videoId, videos.id))
-    .where(eq(rooms.inviteCode, inviteCode))
-    .limit(1);
+    .leftJoin(roomMembers, eq(roomMembers.roomId, rooms.id))
+    .leftJoin(users, eq(roomMembers.userId, users.id))
+    .where(eq(rooms.inviteCode, inviteCode));
+
   const row = rows[0];
   if (!row) return { error: "not_found" };
   if (row.room.status === "ended") return { error: "room_ended" };
@@ -172,27 +201,18 @@ export async function loadRoom(
     return { error: "room_expired" };
   }
 
-  const memberRows = await db
-    .select({
-      userId: roomMembers.userId,
-      role: roomMembers.role,
-      displayName: users.displayName,
-    })
-    .from(roomMembers)
-    .innerJoin(users, eq(roomMembers.userId, users.id))
-    .where(eq(roomMembers.roomId, row.room.id));
-
-  // Recover the timeline the room would be at right now, using the DB clock
-  // so the app server and the sync server never disagree about elapsed time.
-  const [computed] = await db
-    .select({
-      position: sql<number>`case when ${rooms.playing} then
-        ${rooms.positionSeconds} + extract(epoch from (now() - ${rooms.serverTime})) * ${rooms.playbackRate}
-      else ${rooms.positionSeconds} end`,
-      dbNow: sql<number>`extract(epoch from now()) * 1000`,
-    })
-    .from(rooms)
-    .where(eq(rooms.id, row.room.id));
+  const members = rows
+    .filter((r): r is typeof r & { memberUserId: string } => r.memberUserId != null)
+    .map((r) => [
+      r.memberUserId,
+      {
+        userId: r.memberUserId,
+        displayName: r.memberName ?? "Unknown",
+        role: r.memberRole ?? "guest",
+        connected: false,
+        socket: null,
+      },
+    ] as const);
 
   const room: LiveRoom = {
     roomId: row.room.id,
@@ -203,23 +223,12 @@ export async function loadRoom(
     videoTitle: row.video.title,
     durationSeconds: row.video.durationSeconds,
     playing: row.room.playing,
-    positionSeconds: Number(computed?.position ?? row.room.positionSeconds),
+    positionSeconds: Number(row.position ?? row.room.positionSeconds),
     playbackRate: row.room.playbackRate,
-    serverTsMs: Number(computed?.dbNow ?? Date.now()),
+    serverTsMs: Number(row.dbNow ?? Date.now()),
     expiresAtMs: row.room.expiresAt.getTime(),
     status: "active",
-    members: new Map(
-      memberRows.map((m) => [
-        m.userId,
-        {
-          userId: m.userId,
-          displayName: m.displayName,
-          role: m.role ?? "guest",
-          connected: false,
-          socket: null,
-        },
-      ]),
-    ),
+    members: new Map(members),
     dirty: false,
   };
   if (row.video.durationSeconds != null) {

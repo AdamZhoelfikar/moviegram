@@ -116,6 +116,10 @@ async function main(): Promise<void> {
   await wait(1200);
   const forbidden = b.events.slice(guestTriesPlay).find((e) => e.type === "error" && e.code === "forbidden");
   ok("guest play rejected server-side", !!forbidden);
+  if (!playState) {
+    console.log("DEBUG host events:", JSON.stringify(a.events).slice(0, 400));
+    console.log("DEBUG guest events:", JSON.stringify(b.events).slice(0, 400));
+  }
 
   const streamPath = stream?.path ?? "";
   // Relative stream paths are resolved against the sync host by the browser
