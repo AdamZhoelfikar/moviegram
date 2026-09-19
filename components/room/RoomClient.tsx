@@ -134,15 +134,23 @@ export default function RoomClient({
         `${WS_BASE}/?code=${encodeURIComponent(inviteCode)}&token=${encodeURIComponent(ticket)}`,
       );
       wsRef.current = ws;
+      // A StrictMode remount (or a superseded reconnect) can leave an older
+      // socket in flight. Its events must never drive state or reconnects —
+      // two sockets for one member would kick each other in a loop and
+      // re-issue the stream grant, resetting <video src> forever.
+      const isCurrent = () => wsRef.current === ws;
 
       ws.onopen = () => {
-        if (!mountedRef.current) return;
+        if (!mountedRef.current || !isCurrent()) {
+          ws.close();
+          return;
+        }
         setWsOpen(true);
         setReconnecting(false);
         attemptsRef.current = 0;
       };
       ws.onmessage = (msg: MessageEvent<string>) => {
-        if (!mountedRef.current) return;
+        if (!mountedRef.current || !isCurrent()) return;
         let event: ServerEvent;
         try {
           event = JSON.parse(msg.data) as ServerEvent;
@@ -207,7 +215,7 @@ export default function RoomClient({
         }
       };
       ws.onclose = () => {
-        if (!mountedRef.current) return;
+        if (!mountedRef.current || !isCurrent()) return;
         setWsOpen(false);
         if (terminalRef.current) return;
         setReconnecting(true);

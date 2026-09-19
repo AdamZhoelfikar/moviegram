@@ -19,7 +19,8 @@
     "db:seed": "tsx --env-file-if-exists=.env.local scripts/seed.ts",
     "import:telegram": "tsx --env-file-if-exists=.env.local scripts/import-telegram.ts",
     "telegram:login": "tsx --env-file-if-exists=.env.local scripts/telegram-login.ts",
-    "media:demo": "bash scripts/demo-media.sh"
+    "media:demo": "bash scripts/demo-media.sh",
+    "media:fix-hevc": "tsx --env-file-if-exists=.env.local scripts/hevc-fix.ts"
   },
   "dependencies": {
     "clsx": "^2.1.1",

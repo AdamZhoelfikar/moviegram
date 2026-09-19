@@ -30,3 +30,17 @@ export function parseRange(header: string | null, totalSize: number): ByteRange 
 export function rangeHeader(start: number, end: number, total: number): string {
   return `bytes ${start}-${end}/${total}`;
 }
+
+/**
+ * MTProto upload.getFile requires the byte offset to be a multiple of the
+ * request limit, but browsers issue HTTP ranges at arbitrary positions
+ * (moov probes, seeks). Align the offset down to a chunk boundary and
+ * report how many leading bytes must be discarded before the wanted range.
+ */
+export function alignToChunk(
+  start: number,
+  chunkSize: number,
+): { offset: number; skip: number } {
+  const offset = Math.floor(start / chunkSize) * chunkSize;
+  return { offset, skip: start - offset };
+}

@@ -59,6 +59,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, {
   const [duration, setDuration] = useState(state.durationSeconds ?? 0);
   const [buffering, setBuffering] = useState(false);
   const [autoplayBlocked, setAutoplayBlocked] = useState(false);
+  const [codecUnsupported, setCodecUnsupported] = useState(false);
   const [controlsVisible, setControlsVisible] = useState(true);
   const [volume, setVolume] = useState(1);
   const [muted, setMuted] = useState(false);
@@ -78,6 +79,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, {
     const el = videoRef.current;
     if (!el) return;
     if (!el.src.endsWith(src) && el.src !== window.location.origin + src) {
+      setCodecUnsupported(false);
       el.src = src;
       el.load();
     }
@@ -252,6 +254,9 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, {
           if (Number.isFinite(el.duration)) setDuration(el.duration);
           const expected = getExpectedRef.current(Date.now());
           if (expected != null) el.currentTime = expected;
+          // Chrome/Chromium silently drops HEVC (hvc1) tracks: audio plays,
+          // the canvas stays black, readyState still reaches 4. Say so.
+          setCodecUnsupported(el.videoWidth === 0 && el.videoHeight === 0 && !el.error);
         }}
         onWaiting={() => setBuffering(true)}
         onPlaying={() => setBuffering(false)}
@@ -274,6 +279,19 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, {
           {reaction.emoji}
         </span>
       ))}
+
+      {codecUnsupported && (
+        <div className="pointer-events-none absolute inset-x-0 top-3 z-10 flex justify-center px-4">
+          <p className="max-w-md rounded-lg bg-black/80 px-4 py-3 text-center text-sm leading-snug text-white ring-1 ring-white/15">
+            Your browser can&apos;t decode this video&apos;s codec — the picture stays
+            black while audio keeps playing (common with HEVC/H.265 files).
+            <span className="mt-1 block text-xs text-white/60">
+              Ask your host to re-upload an H.264 + faststart copy, or open the
+              room in a browser that supports HEVC. Sync still works for both of you.
+            </span>
+          </p>
+        </div>
+      )}
 
       {buffering && (
         <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">

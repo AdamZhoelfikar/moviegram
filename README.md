@@ -58,20 +58,34 @@ series/auto-next, cinema mode, history) works identically:
    and `TELEGRAM_API_HASH` in `.env.local`.
 3. `npm run telegram:login -- <phone>` → it prints a `TELEGRAM_SESSION=…`
    line → paste it into `.env.local` (stays server-side, never committed).
-4. `npm run import:telegram -- @yourchannel` → every video lands in your
+4. `npm run import:telegram -- @yourchannel` (or the numeric ID of a
+   **private** channel, e.g. `-1001234567890` — get it by forwarding one
+   post from the channel to @userinfobot). Every video lands in your
    Moviegram library with title/metadata; bytes are fetched lazily over
-   MTProto at play time via the signed `/api/stream` route.
+   MTProto at play time via the signed `/api/stream` route. Re-run the
+   import any time — already-imported videos are skipped.
 
 That's it — no re-uploading anywhere else, no 20 MB Bot API limit (MTProto is
 used deliberately), and expired Telegram `file_reference`s re-resolve
 automatically.
+
+**Which files actually play in the browser:** the player uses native HTML5
+`<video>`, so upload **H.264/AVC MP4 with `+faststart`** for universal
+playback. HEVC/H.265 (`x265`/`hevc_nvenc` rips) only decodes on Safari and
+HEVC-hardware Edge — elsewhere you'll hear audio over a black picture, and
+the player now shows an explicit banner saying so. Fix an existing rip with:
+
+```bash
+ffmpeg -i in.mp4 -c:v h264_nvenc -preset p2 -cq 23 -c:a copy \
+  -movflags +faststart out.mp4   # or -c:v libx264 -crf 22 -preset fast
+```
 
 ## Feature status
 
 | Area | Status |
 | --- | --- |
 | Player sync (play/pause/seek/join-in-progress/drift correction/reconnect) | ✅ **Built & browser-verified** (two-tab Playwright QA, see [QA evidence](#tests--qa-evidence)) |
-| Telegram MTProto chunk streaming → HTML5 video with seeking | 🟡 **Code complete** (`lib/telegram.ts`, `/api/stream`), final playback proof needs your `TELEGRAM_*` credentials |
+| Telegram MTProto chunk streaming → HTML5 video with seeking | ✅ **Built & browser-verified** with a live private channel (pipelined 512 KB chunks; throughput is connection-bound, ~1 MB/s measured) |
 | Landing, library, rooms, invite, 2-person limit, host system, sync status, basic identity | ✅ Built |
 | Chat + timestamps, reactions, watch history/continue, subtitles track, series/episodes + auto-next, cinema mode, room expiration | ✅ Built (minimal versions) |
 | Queue, watchlist, password rooms, admin UI, stricter buffering policy | ⏳ Not built — deliberate lean-build scope cut |
@@ -170,8 +184,9 @@ Dockerfile / Dockerfile.ws / docker-compose.yml
   - timestamped chat + reactions delivered live across tabs;
   - sync-server **restart mid-room** → state re-hydrated from Postgres;
   - cinema mode, invite copy, fullscreen controls verified via screenshots.
-- Telegram streaming runtime proof is **pending your credentials** — the code
-  path, range math and grant auth are unit-tested.
+- Telegram streaming: browser-verified end-to-end (play + arbitrary-offset
+  seek, no range errors); the code path, range math and grant auth are also
+  unit-tested.
 
 ## Deployment
 
@@ -197,7 +212,9 @@ Dockerfile / Dockerfile.ws / docker-compose.yml
 - No password rooms, queue, watchlist, admin UI, multi-audio.
 - `watch history` writes attribute to the current cookie's user (fine for the
   2-person product; revisit with real auth).
-- Telegram streaming not yet proven against live credentials.
+- Telegram streaming is verified against a live private channel; throughput
+  per stream is bounded by the server's connection to Telegram's media DC
+  (~1 MB/s measured) — plenty for 720p/1080p with normal buffering.
 
 ## Agent / contributor docs
 

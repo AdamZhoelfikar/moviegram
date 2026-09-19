@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseRange } from "../../range";
+import { alignToChunk, parseRange } from "../../range";
 
 describe("parseRange", () => {
   it("parses an inclusive byte range", () => {
@@ -26,5 +26,21 @@ describe("parseRange", () => {
     expect(parseRange("bytes=10000-20000", 10_000)).toBeNull();
     expect(parseRange("bytes=500-100", 10_000)).toBeNull();
     expect(parseRange("bytes=0-1023, 2048-3071", 10_000)).toBeNull();
+  });
+});
+
+describe("alignToChunk", () => {
+  const KB = 1024;
+  it("keeps an aligned offset unchanged", () => {
+    expect(alignToChunk(0, KB)).toEqual({ offset: 0, skip: 0 });
+    expect(alignToChunk(512 * KB, KB)).toEqual({ offset: 512 * KB, skip: 0 });
+  });
+
+  it("rounds the offset down and reports the bytes to discard", () => {
+    expect(alignToChunk(500, KB)).toEqual({ offset: 0, skip: 500 });
+    expect(alignToChunk(KB * 3 + 7, KB)).toEqual({ offset: KB * 3, skip: 7 });
+    // browser seeking into a moov atom at an arbitrary byte position
+    const { offset } = alignToChunk(9_876_543, 512 * KB);
+    expect(offset % (512 * KB)).toBe(0);
   });
 });
