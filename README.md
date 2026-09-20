@@ -70,10 +70,12 @@ series/auto-next, cinema mode, history) works identically:
    MTProto at play time via the signed `/stream` route.
 
 After that first import the channel is remembered, and the sync host rescans
-it **every 15 minutes** (`IMPORT_SCAN_MINUTES`, 0 disables): upload a video to
-Telegram from your phone and it appears in the library by itself — no command
-to run, nothing to click. Already-imported videos are skipped, so rescanning is
-cheap and safe.
+it **every 5 minutes** (`IMPORT_SCAN_MINUTES`, 0 disables) — plus immediately
+whenever it takes over as the active host. Upload a video to Telegram from your
+phone and it appears in the library on its own: no command to run, nothing to
+click. Already-imported videos are skipped, so rescanning is cheap and safe.
+(The library listing itself is cached for 60 s, so allow a minute for a fresh
+upload to show up after the scan.)
 
 That's it — no re-uploading anywhere else, no 20 MB Bot API limit (MTProto is
 used deliberately), and expired Telegram `file_reference`s re-resolve

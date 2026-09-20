@@ -370,6 +370,10 @@ async function discoverTunnelUrl(): Promise<string | null> {
 let publishedUrl: string | null = null;
 let standingBy = false;
 let activeHost = false;
+// Set once the scan loop below is wired; called on the standby→active
+// transition so a host that just took over refreshes the library immediately
+// instead of waiting a full interval.
+let onBecameActive: (() => void) | null = null;
 const HOST_ID = `${env.publicWsUrl || "local"}#${randomUUID().slice(0, 8)}`;
 async function heartbeat(): Promise<void> {
   const url = (await discoverTunnelUrl()) ?? (env.publicWsUrl || env.publicStreamBase || null);
@@ -378,6 +382,7 @@ async function heartbeat(): Promise<void> {
     return;
   }
   const active = await publishSyncHost(url, HOST_ID);
+  const becameActive = active && !activeHost;
   activeHost = active;
   if (!active) {
     if (!standingBy) {
@@ -391,6 +396,7 @@ async function heartbeat(): Promise<void> {
     console.log(`[ws] publishing sync host: ${url}`);
     publishedUrl = url;
   }
+  if (becameActive) onBecameActive?.();
 }
 
 void heartbeat().catch((err) => console.error("[ws] heartbeat failed:", err));
@@ -402,8 +408,10 @@ setInterval(() => {
 // the one process that can scan the channel for new uploads. Only the active
 // host does this — a standby must not open a second Telegram connection.
 if (env.importScanMinutes > 0) {
+  let scanning = false;
   const scan = async (): Promise<void> => {
-    if (!activeHost) return;
+    if (!activeHost || scanning) return;
+    scanning = true;
     try {
       const channel = env.telegramImportChannel || (await getImportChannel());
       if (!channel) return;
@@ -417,10 +425,12 @@ if (env.importScanMinutes > 0) {
       console.error("[import] scan failed:", err);
       // Surface the failure where the app can see it (no log access needed).
       await recordImportScan(0, message).catch(() => undefined);
+    } finally {
+      scanning = false;
     }
   };
-  // First scan soon after boot (library changes should show up quickly), then
-  // on the configured interval.
+  onBecameActive = () => void scan();
+  // First scan shortly after boot, then on the configured interval.
   setTimeout(() => void scan(), 15_000).unref();
   setInterval(() => void scan(), env.importScanMinutes * 60_000).unref();
   console.log(`[import] scanning the library every ${env.importScanMinutes} min`);

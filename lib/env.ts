@@ -43,7 +43,8 @@ export const env = {
   telegramSession: process.env.TELEGRAM_SESSION ?? "",
   telegramImportChannel: process.env.TELEGRAM_IMPORT_CHANNEL ?? "",
   // Minutes between automatic library scans on the sync host (0 disables).
-  importScanMinutes: num("IMPORT_SCAN_MINUTES", 15),
+  // Cheap (one history call) and makes a new Telegram upload appear on its own.
+  importScanMinutes: num("IMPORT_SCAN_MINUTES", 5),
   telegramChunkKb: num("TELEGRAM_CHUNK_KB", 512),
 };
 
