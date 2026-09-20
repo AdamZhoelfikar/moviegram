@@ -42,6 +42,8 @@ export const env = {
   telegramApiHash: process.env.TELEGRAM_API_HASH ?? "",
   telegramSession: process.env.TELEGRAM_SESSION ?? "",
   telegramImportChannel: process.env.TELEGRAM_IMPORT_CHANNEL ?? "",
+  // Minutes between automatic library scans on the sync host (0 disables).
+  importScanMinutes: num("IMPORT_SCAN_MINUTES", 15),
   telegramChunkKb: num("TELEGRAM_CHUNK_KB", 512),
 };
 

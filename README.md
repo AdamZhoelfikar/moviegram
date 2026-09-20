@@ -67,8 +67,13 @@ series/auto-next, cinema mode, history) works identically:
    **private** channel, e.g. `-1001234567890` — get it by forwarding one
    post from the channel to @userinfobot). Every video lands in your
    Moviegram library with title/metadata; bytes are fetched lazily over
-   MTProto at play time via the signed `/api/stream` route. Re-run the
-   import any time — already-imported videos are skipped.
+   MTProto at play time via the signed `/stream` route.
+
+After that first import the channel is remembered, and the sync host rescans
+it **every 15 minutes** (`IMPORT_SCAN_MINUTES`, 0 disables): upload a video to
+Telegram from your phone and it appears in the library by itself — no command
+to run, nothing to click. Already-imported videos are skipped, so rescanning is
+cheap and safe.
 
 That's it — no re-uploading anywhere else, no 20 MB Bot API limit (MTProto is
 used deliberately), and expired Telegram `file_reference`s re-resolve

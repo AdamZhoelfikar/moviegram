@@ -5,8 +5,9 @@ import { env } from "../lib/env";
 import { verifyWsTicket } from "../lib/auth";
 import { rateLimit } from "../lib/rate-limit";
 import { CHAT_MAX_LENGTH, type ClientEvent, type ServerEvent } from "../lib/protocol";
-import { publishSyncHost } from "../lib/sync-host";
+import { publishSyncHost, getImportChannel, recordImportScan } from "../lib/sync-host";
 import { handleStreamRequest } from "./streamer";
+import { importChannelVideos } from "./importer";
 import {
   allLiveRoomCodes,
   flushLiveRooms,
@@ -358,6 +359,7 @@ async function discoverTunnelUrl(): Promise<string | null> {
 
 let publishedUrl: string | null = null;
 let standingBy = false;
+let activeHost = false;
 const HOST_ID = `${env.publicWsUrl || "local"}#${randomUUID().slice(0, 8)}`;
 async function heartbeat(): Promise<void> {
   const url = (await discoverTunnelUrl()) ?? (env.publicWsUrl || env.publicStreamBase || null);
@@ -366,6 +368,7 @@ async function heartbeat(): Promise<void> {
     return;
   }
   const active = await publishSyncHost(url, HOST_ID);
+  activeHost = active;
   if (!active) {
     if (!standingBy) {
       console.log("[ws] another sync host is active — standing by (takes over if it stops)");
@@ -384,5 +387,32 @@ void heartbeat().catch((err) => console.error("[ws] heartbeat failed:", err));
 setInterval(() => {
   void heartbeat().catch((err) => console.error("[ws] heartbeat failed:", err));
 }, 30_000).unref();
+
+// Automatic library refresh: the sync host owns the Telegram session, so it is
+// the one process that can scan the channel for new uploads. Only the active
+// host does this — a standby must not open a second Telegram connection.
+if (env.importScanMinutes > 0) {
+  const scan = async (): Promise<void> => {
+    if (!activeHost) return;
+    try {
+      const channel = env.telegramImportChannel || (await getImportChannel());
+      if (!channel) return;
+      const result = await importChannelVideos(channel);
+      await recordImportScan(result.inserted).catch(() => undefined);
+      if (result.inserted > 0) {
+        console.log(`[import] ${result.inserted} new video(s): ${result.titles.join(", ")}`);
+      }
+    } catch (err) {
+      console.error("[import] scan failed:", err);
+    }
+  };
+  // First scan soon after boot (library changes should show up quickly), then
+  // on the configured interval.
+  setTimeout(() => void scan(), 15_000).unref();
+  setInterval(() => void scan(), env.importScanMinutes * 60_000).unref();
+  console.log(`[import] scanning the library every ${env.importScanMinutes} min`);
+} else {
+  console.log("[import] automatic library scan disabled (IMPORT_SCAN_MINUTES=0)");
+}
 
 console.log(`[ws] sync server listening on :${env.wsPort}`);

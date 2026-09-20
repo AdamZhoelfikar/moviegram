@@ -4,6 +4,8 @@ import { settings } from "../db/schema";
 
 export const SYNC_HOST_KEY = "sync_host_url";
 const SYNC_HOST_OWNER_KEY = "sync_host_owner";
+export const IMPORT_CHANNEL_KEY = "import_channel";
+export const IMPORT_LAST_SCAN_KEY = "import_last_scan";
 
 /** A host that has not heartbeat within this window is treated as offline. */
 const STALE_AFTER_MS = 90_000;
@@ -61,4 +63,38 @@ export async function publishSyncHost(url: string, hostId: string): Promise<bool
   await upsert(SYNC_HOST_OWNER_KEY, hostId);
   await upsert(SYNC_HOST_KEY, normalized);
   return true;
+}
+
+/**
+ * The Telegram channel the sync host scans for new uploads. Remembered in the
+ * database so a one-off manual import (or the first scan) configures the
+ * automatic import for good.
+ */
+export async function getImportChannel(): Promise<string | null> {
+  const [row] = await db
+    .select()
+    .from(settings)
+    .where(eq(settings.key, IMPORT_CHANNEL_KEY))
+    .limit(1);
+  return row?.value ?? null;
+}
+
+export async function setImportChannel(channel: string): Promise<void> {
+  await upsert(IMPORT_CHANNEL_KEY, channel.trim());
+}
+
+/** Records that the automatic library scan ran, so it is observable. */
+export async function recordImportScan(inserted: number): Promise<void> {
+  await upsert(IMPORT_LAST_SCAN_KEY, `${new Date().toISOString()}|${inserted}`);
+}
+
+export async function getImportLastScan(): Promise<{ at: Date; inserted: number } | null> {
+  const [row] = await db
+    .select()
+    .from(settings)
+    .where(eq(settings.key, IMPORT_LAST_SCAN_KEY))
+    .limit(1);
+  if (!row) return null;
+  const [iso, count] = row.value.split("|");
+  return { at: new Date(iso), inserted: Number(count) || 0 };
 }

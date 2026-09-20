@@ -84,6 +84,12 @@ video storage via `teleproto` (the maintained GramJS fork — `telegram` npm is 
   the active host dying. Deployed host: Render free tier (`render.yaml`,
   Singapore) — 0.1 CPU / 512 MB, spins down after 15 min idle, so keep a
   free pinger on `/health`; measured ~4.6 MB/s from Render's network.
+- The **active host** also rescans the Telegram channel every
+  `IMPORT_SCAN_MINUTES` (default 15, `server/importer.ts`) so new uploads
+  appear without a command. It is gated on being the active host on purpose: a
+  standby must never open a second Telegram connection. `import_channel` and
+  `import_last_scan` live in the `settings` table (the latter makes the scan
+  observable).
 - WS auth uses short-lived signed **tickets** returned by `POST /api/rooms/[code]/join`
   (session cookie is httpOnly and cannot be read by JS). Reconnects reuse the cached
   ticket; only a `forbidden` error forces a fresh join call. Do not reconnect through
