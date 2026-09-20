@@ -230,9 +230,9 @@ ready Blueprint:
 1. Push this repo to GitHub (already done if you're reading this in the repo).
 2. [render.com](https://render.com) → sign up with GitHub → **New → Blueprint**
    → pick this repository. Render reads `render.yaml`, builds `Dockerfile.ws`
-   and asks for the four secrets:
-   `DATABASE_URL` (your Neon URL), `SESSION_SECRET` (same as Vercel),
-   `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`, `TELEGRAM_SESSION`.
+   and asks for the five secrets: `DATABASE_URL` (your Neon URL),
+   `SESSION_SECRET` (same as Vercel), `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`,
+   `TELEGRAM_SESSION` (copy them from your local `.env.local`).
 3. Deploy. The service URL is stable
    (`https://moviegram-sync.onrender.com`) and the server publishes it to
    Postgres by itself — nothing to configure on Vercel.
