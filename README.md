@@ -215,6 +215,35 @@ Dockerfile / Dockerfile.ws / docker-compose.yml
 - Rate limiting is in-process (single instance assumed — fine for 2 users;
   revisit with Redis only if you scale).
 
+### Always-on sync host (no laptop required)
+
+The sync server is the only process that talks to Telegram (one MTProto
+session) and it serves the video bytes, so while it runs on your laptop,
+closing the laptop stops playback and syncing. Move it to any always-on box —
+the app keeps working because the host **publishes its own URL** to the
+`settings` table and the room page reads it at request time (no Vercel rebuild
+when the host moves or the tunnel URL rotates).
+
+Oracle Cloud Always Free (RM0), one-time installer:
+
+```bash
+# 1. Oracle console: Compute → Instances → Create
+#    - Image: Ubuntu 24.04
+#    - Shape: Ampere → VM.Standard.A1.Flex (1 OCPU / 6 GB is plenty)
+#    - Paste your SSH public key, keep the default VCN
+# 2. On the VM:
+git clone <your-repo> ~/moviegram && cd ~/moviegram
+bash scripts/install-sync-host.sh          # Node, cloudflared, deps, systemd
+$EDITOR .env.local                         # DATABASE_URL, SESSION_SECRET, TELEGRAM_*
+sudo systemctl start moviegram-sync
+journalctl -u moviegram-sync -f            # shows the advertised URL
+```
+
+No inbound ports or security-list changes are needed — the tunnel is
+outbound-only. `scripts/sync-host.sh` supervises both the tunnel and the
+server: if Cloudflare drops the quick tunnel (`Unauthorized: Tunnel not
+found`) it is recreated and the new URL is republished automatically.
+
 ## Known limitations (honest list)
 
 - Strict "wait-for-both" buffering policy is simplified: a
