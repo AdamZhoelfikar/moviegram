@@ -78,6 +78,12 @@ video storage via `teleproto` (the maintained GramJS fork — `telegram` npm is 
   request time. That is why moving the host (new VPS, rotated tunnel URL) needs
   no Vercel rebuild. A heartbeat older than 90 s counts as offline and the room
   shows a warning instead of failing silently.
+- Hosts are **ownership-claimed**: `publishSyncHost(url, hostId)` only writes
+  when the current owner is stale, so laptop + Render can run side by side
+  without the published URL flapping, and a standby takes over within 90 s of
+  the active host dying. Deployed host: Render free tier (`render.yaml`,
+  Singapore) — 0.1 CPU / 512 MB, spins down after 15 min idle, so keep a
+  free pinger on `/health`; measured ~4.6 MB/s from Render's network.
 - WS auth uses short-lived signed **tickets** returned by `POST /api/rooms/[code]/join`
   (session cookie is httpOnly and cannot be read by JS). Reconnects reuse the cached
   ticket; only a `forbidden` error forces a fresh join call. Do not reconnect through
