@@ -237,9 +237,11 @@ ready Blueprint:
    (`https://moviegram-sync.onrender.com`) and the server publishes it to
    Postgres by itself — nothing to configure on Vercel.
 4. Keep it awake: free instances spin down after 15 minutes without traffic
-   (~1 minute to wake). Point a free pinger such as
-   [cron-job.org](https://cron-job.org) at
-   `https://moviegram-sync.onrender.com/health` every 5 minutes. While a room
+   (~1 minute to wake). This repo ships a GitHub Actions pinger
+   (`.github/workflows/keep-sync-host-awake.yml`) that hits `/health` every
+   5 minutes — it needs no signup and works out of the box. For a stricter
+   schedule, point any free pinger ([cron-job.org](https://cron-job.org),
+   UptimeRobot) at `https://moviegram-sync.onrender.com/health`. While a room
    is open the WebSocket traffic already keeps it alive.
 
 Free plan limits to know: 0.1 CPU / 512 MB, 750 instance-hours per month
