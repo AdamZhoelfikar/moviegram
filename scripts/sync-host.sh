@@ -1,50 +1,76 @@
 #!/usr/bin/env bash
-# Runs the sync server (WebSocket + video streaming) behind a Cloudflare
-# quick tunnel. Prints the public URL into the log and exports PUBLIC_WS_URL so
-# the server publishes itself to Postgres (lib/sync-host.ts) — the Vercel app
-# then discovers the host at request time, no rebuild needed.
+# Supervises the sync server (WebSocket + video streaming) behind a Cloudflare
+# quick tunnel.
+#
+# Why a supervisor: quick tunnels can be dropped server-side
+# ("Unauthorized: Tunnel not found") and cloudflared then retries the same dead
+# tunnel forever. This loop restarts it, which mints a NEW hostname; the sync
+# server reads the live hostname from cloudflared's metrics endpoint and
+# republishes it to Postgres (lib/sync-host.ts), so the Vercel app follows
+# automatically — no rebuild, no manual URL update.
 #
 # Used by systemd (deploy/moviegram-sync.service); safe to run by hand.
-set -euo pipefail
+set -uo pipefail
 cd "$(dirname "$0")/.."
 
+PORT="${WS_PORT:-3001}"
+METRICS_PORT="${CLOUDFLARED_METRICS_PORT:-20241}"
 LOG_DIR="${MOVIEGRAM_LOG_DIR:-$HOME/.cache/moviegram}"
 mkdir -p "$LOG_DIR"
 TUNNEL_LOG="$LOG_DIR/tunnel.log"
-: > "$TUNNEL_LOG"
 
+CF_PID=""
+WS_PID=""
 cleanup() {
-  if [ -n "${TUNNEL_PID:-}" ] && kill -0 "$TUNNEL_PID" 2>/dev/null; then
-    kill "$TUNNEL_PID" 2>/dev/null || true
-  fi
+  [ -n "$WS_PID" ] && kill "$WS_PID" 2>/dev/null
+  [ -n "$CF_PID" ] && kill "$CF_PID" 2>/dev/null
 }
-trap cleanup EXIT INT TERM
+trap 'cleanup; exit 0' INT TERM
 
-cloudflared tunnel --url "http://localhost:${WS_PORT:-3001}" --no-autoupdate \
-  > "$TUNNEL_LOG" 2>&1 &
-TUNNEL_PID=$!
+tunnel_hostname() {
+  curl -s --max-time 2 "http://127.0.0.1:${METRICS_PORT}/quicktunnel" 2>/dev/null |
+    grep -oE '"hostname":"[^"]+"' | cut -d'"' -f4
+}
 
-# The quick-tunnel hostname appears in the log a few seconds after start.
-PUBLIC_URL=""
-for _ in $(seq 1 60); do
-  PUBLIC_URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' "$TUNNEL_LOG" | head -1 || true)
-  [ -n "$PUBLIC_URL" ] && break
-  if ! kill -0 "$TUNNEL_PID" 2>/dev/null; then
-    echo "[sync-host] cloudflared exited early:" >&2
-    cat "$TUNNEL_LOG" >&2
-    exit 1
+while true; do
+  : > "$TUNNEL_LOG"
+  echo "[sync-host] starting cloudflared (metrics :$METRICS_PORT)"
+  cloudflared tunnel --url "http://localhost:${PORT}" --no-autoupdate \
+    --metrics "127.0.0.1:${METRICS_PORT}" >> "$TUNNEL_LOG" 2>&1 &
+  CF_PID=$!
+
+  HOST=""
+  for _ in $(seq 1 60); do
+    HOST=$(tunnel_hostname)
+    [ -n "$HOST" ] && break
+    if ! kill -0 "$CF_PID" 2>/dev/null; then
+      echo "[sync-host] cloudflared exited early" >&2
+      break
+    fi
+    sleep 1
+  done
+
+  if [ -n "$HOST" ]; then
+    echo "[sync-host] tunnel up: https://$HOST"
+    # PUBLIC_WS_URL is intentionally NOT set: the server discovers the live
+    # hostname itself, so a rotated tunnel is picked up without a restart.
+    npx tsx --env-file-if-exists=.env.local server/ws.ts &
+    WS_PID=$!
+
+    # Watch for a dropped tunnel or a dead process.
+    while kill -0 "$CF_PID" 2>/dev/null && kill -0 "$WS_PID" 2>/dev/null; do
+      if tail -n 40 "$TUNNEL_LOG" | grep -qE "Unauthorized: Tunnel not found|Failed to serve tunnel"; then
+        echo "[sync-host] tunnel dropped by Cloudflare — recreating" >&2
+        break
+      fi
+      sleep 15
+    done
+  else
+    echo "[sync-host] no tunnel hostname; retrying" >&2
   fi
-  sleep 1
+
+  cleanup
+  CF_PID=""
+  WS_PID=""
+  sleep 5
 done
-
-if [ -z "$PUBLIC_URL" ]; then
-  echo "[sync-host] could not detect the tunnel URL" >&2
-  exit 1
-fi
-
-# wss:// for the WebSocket, https:// for the /stream/ bytes — same origin.
-export PUBLIC_WS_URL="${PUBLIC_URL/https:/wss:}"
-export PUBLIC_STREAM_BASE="$PUBLIC_URL"
-echo "[sync-host] public url: $PUBLIC_WS_URL"
-
-exec npx tsx --env-file-if-exists=.env.local server/ws.ts

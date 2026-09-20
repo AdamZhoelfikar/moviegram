@@ -334,13 +334,44 @@ process.on("SIGINT", closing);
 
 // Advertise this host so the Vercel app can find it without a rebuild, and
 // keep heartbeating so a stale row is detectable (see lib/sync-host.ts).
-const hostUrl = env.publicWsUrl || env.publicStreamBase;
-if (hostUrl) {
-  const beat = () => publishSyncHost(hostUrl).catch((err) => console.error("[ws] heartbeat failed:", err));
-  void beat();
-  setInterval(beat, 30_000).unref();
-} else {
-  console.log("[ws] PUBLIC_WS_URL not set — app will fall back to its build-time NEXT_PUBLIC_WS_URL");
+//
+// The URL is read from the local cloudflared metrics endpoint when present,
+// because a quick tunnel can be dropped and re-created with a NEW hostname
+// ("Unauthorized: Tunnel not found"). When discovery fails and no explicit
+// PUBLIC_WS_URL is configured we deliberately stop heartbeating: the row goes
+// stale and the app tells users the host is offline instead of pointing them
+// at a dead URL.
+const CLOUDFLARED_METRICS =
+  process.env.CLOUDFLARED_METRICS ?? "http://127.0.0.1:20241/quicktunnel";
+
+async function discoverTunnelUrl(): Promise<string | null> {
+  try {
+    const res = await fetch(CLOUDFLARED_METRICS, { signal: AbortSignal.timeout(2000) });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { hostname?: string };
+    return data.hostname ? `wss://${data.hostname}` : null;
+  } catch {
+    return null;
+  }
 }
+
+let publishedUrl: string | null = null;
+async function heartbeat(): Promise<void> {
+  const url = (await discoverTunnelUrl()) ?? (env.publicWsUrl || env.publicStreamBase || null);
+  if (!url) {
+    console.warn("[ws] no public URL discoverable — not heartbeating (app will show host offline)");
+    return;
+  }
+  if (url !== publishedUrl) {
+    console.log(`[ws] publishing sync host: ${url}`);
+    publishedUrl = url;
+  }
+  await publishSyncHost(url);
+}
+
+void heartbeat().catch((err) => console.error("[ws] heartbeat failed:", err));
+setInterval(() => {
+  void heartbeat().catch((err) => console.error("[ws] heartbeat failed:", err));
+}, 30_000).unref();
 
 console.log(`[ws] sync server listening on :${env.wsPort}`);
