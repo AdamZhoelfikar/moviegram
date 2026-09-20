@@ -84,14 +84,22 @@ export async function setImportChannel(channel: string): Promise<void> {
 }
 
 /** Records that the automatic library scan ran, so it is observable. */
-export async function recordImportScan(inserted: number, error?: string): Promise<void> {
+export async function recordImportScan(
+  inserted: number,
+  skipped = 0,
+  error?: string,
+): Promise<void> {
   const stamp = new Date().toISOString();
-  await upsert(IMPORT_LAST_SCAN_KEY, `${stamp}|${inserted}|${error ? error.slice(0, 200) : ""}`);
+  await upsert(
+    IMPORT_LAST_SCAN_KEY,
+    `${stamp}|${inserted}|${skipped}|${error ? error.slice(0, 200) : ""}`,
+  );
 }
 
 export async function getImportLastScan(): Promise<{
   at: Date;
   inserted: number;
+  skipped: number;
   error: string | null;
 } | null> {
   const [row] = await db
@@ -100,6 +108,11 @@ export async function getImportLastScan(): Promise<{
     .where(eq(settings.key, IMPORT_LAST_SCAN_KEY))
     .limit(1);
   if (!row) return null;
-  const [iso, count, error] = row.value.split("|");
-  return { at: new Date(iso), inserted: Number(count) || 0, error: error || null };
+  const [iso, inserted, skipped, error] = row.value.split("|");
+  return {
+    at: new Date(iso),
+    inserted: Number(inserted) || 0,
+    skipped: Number(skipped) || 0,
+    error: error || null,
+  };
 }

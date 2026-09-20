@@ -416,7 +416,7 @@ if (env.importScanMinutes > 0) {
       const channel = env.telegramImportChannel || (await getImportChannel());
       if (!channel) return;
       const result = await importChannelVideos(channel);
-      await recordImportScan(result.inserted).catch(() => undefined);
+      await recordImportScan(result.inserted, result.skipped).catch(() => undefined);
       if (result.inserted > 0) {
         console.log(`[import] ${result.inserted} new video(s): ${result.titles.join(", ")}`);
       }
@@ -424,7 +424,7 @@ if (env.importScanMinutes > 0) {
       const message = err instanceof Error ? err.message : String(err);
       console.error("[import] scan failed:", err);
       // Surface the failure where the app can see it (no log access needed).
-      await recordImportScan(0, message).catch(() => undefined);
+      await recordImportScan(0, 0, message).catch(() => undefined);
     } finally {
       scanning = false;
     }
