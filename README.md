@@ -224,14 +224,33 @@ the app keeps working because the host **publishes its own URL** to the
 `settings` table and the room page reads it at request time (no Vercel rebuild
 when the host moves or the tunnel URL rotates).
 
-Oracle Cloud Always Free (RM0), one-time installer:
+**Free option: Render (Singapore, no card).** `render.yaml` in this repo is a
+ready Blueprint:
+
+1. Push this repo to GitHub (already done if you're reading this in the repo).
+2. [render.com](https://render.com) → sign up with GitHub → **New → Blueprint**
+   → pick this repository. Render reads `render.yaml`, builds `Dockerfile.ws`
+   and asks for the four secrets:
+   `DATABASE_URL` (your Neon URL), `SESSION_SECRET` (same as Vercel),
+   `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`, `TELEGRAM_SESSION`.
+3. Deploy. The service URL is stable
+   (`https://moviegram-sync.onrender.com`) and the server publishes it to
+   Postgres by itself — nothing to configure on Vercel.
+4. Keep it awake: free instances spin down after 15 minutes without traffic
+   (~1 minute to wake). Point a free pinger such as
+   [cron-job.org](https://cron-job.org) at
+   `https://moviegram-sync.onrender.com/health` every 5 minutes. While a room
+   is open the WebSocket traffic already keeps it alive.
+
+Free plan limits to know: 0.1 CPU / 512 MB, 750 instance-hours per month
+(a 24/7 pinger uses ~730), 100 GB outbound bandwidth, and Render may restart
+the instance at any time. Two hosts can run at once safely — only the first
+claims the slot, and the other takes over within 90 s if it stops (see
+`lib/sync-host.ts`).
+
+**Alternative: any VPS** (Oracle Always Free, Hetzner, …) with the installer:
 
 ```bash
-# 1. Oracle console: Compute → Instances → Create
-#    - Image: Ubuntu 24.04
-#    - Shape: Ampere → VM.Standard.A1.Flex (1 OCPU / 6 GB is plenty)
-#    - Paste your SSH public key, keep the default VCN
-# 2. On the VM:
 git clone <your-repo> ~/moviegram && cd ~/moviegram
 bash scripts/install-sync-host.sh          # Node, cloudflared, deps, systemd
 $EDITOR .env.local                         # DATABASE_URL, SESSION_SECRET, TELEGRAM_*

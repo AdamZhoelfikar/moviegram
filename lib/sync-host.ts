@@ -3,6 +3,7 @@ import { db } from "./db";
 import { settings } from "../db/schema";
 
 export const SYNC_HOST_KEY = "sync_host_url";
+const SYNC_HOST_OWNER_KEY = "sync_host_owner";
 
 /** A host that has not heartbeat within this window is treated as offline. */
 const STALE_AFTER_MS = 90_000;
@@ -29,13 +30,35 @@ export async function getSyncHost(): Promise<SyncHost | null> {
   return { url: row.value, online: ageMs < STALE_AFTER_MS, ageMs };
 }
 
-export async function publishSyncHost(url: string): Promise<void> {
-  const normalized = url.replace(/\/+$/, "");
+async function upsert(key: string, value: string): Promise<void> {
   await db
     .insert(settings)
-    .values({ key: SYNC_HOST_KEY, value: normalized, updatedAt: new Date() })
+    .values({ key, value, updatedAt: new Date() })
     .onConflictDoUpdate({
       target: settings.key,
-      set: { value: normalized, updatedAt: new Date() },
+      set: { value, updatedAt: new Date() },
     });
+}
+
+/**
+ * Claim the sync-host slot. Multiple hosts may run at once (laptop + a cloud
+ * box during migration): only the current owner writes, so the app never sees
+ * the URL flap. If the owner stops heartbeating, a standby takes over after
+ * the staleness window — free failover.
+ *
+ * @returns true when this host is the active one.
+ */
+export async function publishSyncHost(url: string, hostId: string): Promise<boolean> {
+  const [owner] = await db
+    .select()
+    .from(settings)
+    .where(eq(settings.key, SYNC_HOST_OWNER_KEY))
+    .limit(1);
+  const ownerFresh = owner && Date.now() - owner.updatedAt.getTime() < STALE_AFTER_MS;
+  if (ownerFresh && owner.value !== hostId) return false;
+
+  const normalized = url.replace(/\/+$/, "");
+  await upsert(SYNC_HOST_OWNER_KEY, hostId);
+  await upsert(SYNC_HOST_KEY, normalized);
+  return true;
 }

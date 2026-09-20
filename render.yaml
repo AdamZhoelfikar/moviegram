@@ -1,0 +1,33 @@
+# Render Blueprint — one-click deploy of the sync host (WebSocket + video).
+#
+# Dashboard → New → Blueprint → pick this repo. Render reads this file, builds
+# Dockerfile.ws and asks for the secret values below. Free plan: 0.1 CPU /
+# 512 MB, Singapore region, stable https://<name>.onrender.com URL.
+#
+# The server publishes its own URL (Render injects RENDER_EXTERNAL_URL) to the
+# settings table, so the Vercel app finds it with no rebuild and no manual URL.
+#
+# Free instances spin down after 15 minutes without traffic and take ~1 minute
+# to wake. Point a free pinger (e.g. cron-job.org, every 5 min) at
+# https://<name>.onrender.com/health to keep it warm; a watching room keeps it
+# alive by itself because WebSocket messages count as traffic.
+services:
+  - type: web
+    name: moviegram-sync
+    runtime: docker
+    dockerfilePath: ./Dockerfile.ws
+    plan: free
+    region: singapore
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: SESSION_SECRET
+        sync: false
+      - key: TELEGRAM_API_ID
+        sync: false
+      - key: TELEGRAM_API_HASH
+        sync: false
+      - key: TELEGRAM_SESSION
+        sync: false

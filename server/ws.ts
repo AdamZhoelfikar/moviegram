@@ -1,4 +1,5 @@
 import { createServer } from "http";
+import { randomUUID } from "crypto";
 import { WebSocketServer, type WebSocket } from "ws";
 import { env } from "../lib/env";
 import { verifyWsTicket } from "../lib/auth";
@@ -356,17 +357,27 @@ async function discoverTunnelUrl(): Promise<string | null> {
 }
 
 let publishedUrl: string | null = null;
+let standingBy = false;
+const HOST_ID = `${env.publicWsUrl || "local"}#${randomUUID().slice(0, 8)}`;
 async function heartbeat(): Promise<void> {
   const url = (await discoverTunnelUrl()) ?? (env.publicWsUrl || env.publicStreamBase || null);
   if (!url) {
     console.warn("[ws] no public URL discoverable — not heartbeating (app will show host offline)");
     return;
   }
+  const active = await publishSyncHost(url, HOST_ID);
+  if (!active) {
+    if (!standingBy) {
+      console.log("[ws] another sync host is active — standing by (takes over if it stops)");
+      standingBy = true;
+    }
+    return;
+  }
+  standingBy = false;
   if (url !== publishedUrl) {
     console.log(`[ws] publishing sync host: ${url}`);
     publishedUrl = url;
   }
-  await publishSyncHost(url);
 }
 
 void heartbeat().catch((err) => console.error("[ws] heartbeat failed:", err));
