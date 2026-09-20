@@ -22,10 +22,23 @@ TUNNEL_LOG="$LOG_DIR/tunnel.log"
 CF_PID=""
 WS_PID=""
 cleanup() {
+  # npx/tsx spawn children; kill the whole process group so the node server
+  # actually releases the port (otherwise the next loop hits EADDRINUSE).
+  [ -n "$WS_PID" ] && kill -- -"$WS_PID" 2>/dev/null
   [ -n "$WS_PID" ] && kill "$WS_PID" 2>/dev/null
   [ -n "$CF_PID" ] && kill "$CF_PID" 2>/dev/null
 }
 trap 'cleanup; exit 0' INT TERM
+
+free_port() {
+  local pids
+  pids=$(ss -ltnp 2>/dev/null | grep ":${PORT} " | grep -oE 'pid=[0-9]+' | cut -d= -f2 | sort -u)
+  for pid in $pids; do
+    echo "[sync-host] freeing port $PORT (pid $pid)" >&2
+    kill "$pid" 2>/dev/null
+  done
+  [ -n "$pids" ] && sleep 2
+}
 
 tunnel_hostname() {
   curl -s --max-time 2 "http://127.0.0.1:${METRICS_PORT}/quicktunnel" 2>/dev/null |
@@ -52,9 +65,12 @@ while true; do
 
   if [ -n "$HOST" ]; then
     echo "[sync-host] tunnel up: https://$HOST"
+    free_port
     # PUBLIC_WS_URL is intentionally NOT set: the server discovers the live
     # hostname itself, so a rotated tunnel is picked up without a restart.
-    npx tsx --env-file-if-exists=.env.local server/ws.ts &
+    # setsid puts the server in its own process group so cleanup can kill the
+    # whole tree (npx -> tsx -> node).
+    setsid npx tsx --env-file-if-exists=.env.local server/ws.ts &
     WS_PID=$!
 
     # Watch for a dropped tunnel or a dead process.
