@@ -1,7 +1,7 @@
 import { createServer } from "http";
 import { randomUUID } from "crypto";
 import { WebSocketServer, type WebSocket } from "ws";
-import { env } from "../lib/env";
+import { env, telegramConfigured } from "../lib/env";
 import { verifyWsTicket } from "../lib/auth";
 import { rateLimit } from "../lib/rate-limit";
 import { CHAT_MAX_LENGTH, type ClientEvent, type ServerEvent } from "../lib/protocol";
@@ -42,8 +42,18 @@ const wss = new WebSocketServer({
   server: createServer((req, res) => {
     const url = new URL(req.url ?? "/", "http://internal");
     if (url.pathname === "/health") {
-      res.writeHead(200, { "content-type": "text/plain" });
-      res.end("ok");
+      // Plain 200 for uptime pingers, with enough detail to confirm which
+      // build is running and whether the automatic library scan is armed.
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(
+        JSON.stringify({
+          ok: true,
+          host: publishedUrl,
+          active: activeHost,
+          scanMinutes: env.importScanMinutes,
+          telegramConfigured: telegramConfigured(),
+        }),
+      );
       return;
     }
     // Video bytes are served from this host (see server/streamer.ts) so the
@@ -403,7 +413,10 @@ if (env.importScanMinutes > 0) {
         console.log(`[import] ${result.inserted} new video(s): ${result.titles.join(", ")}`);
       }
     } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
       console.error("[import] scan failed:", err);
+      // Surface the failure where the app can see it (no log access needed).
+      await recordImportScan(0, message).catch(() => undefined);
     }
   };
   // First scan soon after boot (library changes should show up quickly), then
